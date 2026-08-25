@@ -75,6 +75,7 @@ import {
   advanceCatchUpDiscoveryAt,
   readCatchUpDiscoveryAt,
 } from "./unreadCatchUpDiscoveryStorage";
+import { applyCatchUpDiscoveries } from "./unreadCatchUpMembership";
 
 type UseUnreadChannelsOptions = UseLiveChannelUpdatesOptions & {
   pubkey?: string;
@@ -635,7 +636,7 @@ export function useUnreadChannels(
       selfPubkey: normalizedPubkey ?? "",
       mutedChannelIds: [...mutedChannelIdsRef.current],
     })
-      .then(({ channels: results }) => {
+      .then(async ({ channels: results }) => {
         if (isCancelled) return;
         if (!observedPersistence.isScopeLoaded()) return;
 
@@ -650,39 +651,25 @@ export function useUnreadChannels(
             failedIds.push(result.channelId);
             continue;
           }
-          clearCatchUpRetryAttempt(result.channelId);
-          advanceCatchUpDiscoveryAt(
-            currentActivityScope,
-            result.channelId,
-            result.discoveryThrough,
-          );
-          for (const rootId of result.discovered.participated) {
-            const before = participatedRootIdsRef.current.size;
-            participatedRootIdsRef.current.add(rootId);
-            if (participatedRootIdsRef.current.size !== before) {
-              observedPersistence.updateMembership(
-                "participated",
-                rootId,
-                true,
-              );
-              didDiscover = true;
-            }
-          }
-          for (const rootId of result.discovered.authored) {
-            const before = authoredRootIdsRef.current.size;
-            authoredRootIdsRef.current.add(rootId);
-            if (authoredRootIdsRef.current.size !== before) {
-              observedPersistence.updateMembership("authored", rootId, true);
-              didDiscover = true;
-            }
-          }
-          for (const rootId of result.discovered.mentioned) {
-            const before = mentionedRootIdsRef.current.size;
-            mentionedRootIdsRef.current.add(rootId);
-            if (mentionedRootIdsRef.current.size !== before) {
-              observedPersistence.updateMembership("mentioned", rootId, true);
-              didDiscover = true;
-            }
+          const discovery = applyCatchUpDiscoveries(result.discovered, {
+            participated: participatedRootIdsRef.current,
+            authored: authoredRootIdsRef.current,
+            mentioned: mentionedRootIdsRef.current,
+          });
+          didDiscover ||= discovery.didDiscover;
+          const membershipPersisted =
+            await observedPersistence.persistMembership(discovery.updates);
+          if (isCancelled || !observedPersistence.isScopeLoaded()) return;
+          if (membershipPersisted) {
+            clearCatchUpRetryAttempt(result.channelId);
+            advanceCatchUpDiscoveryAt(
+              currentActivityScope,
+              result.channelId,
+              result.discoveryThrough,
+            );
+          } else {
+            caughtUpChannelsRef.current.delete(result.channelId);
+            failedIds.push(result.channelId);
           }
           allThreadReplies.push(...result.activityRows);
           for (const event of result.observedEvents) {

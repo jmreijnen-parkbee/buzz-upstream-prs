@@ -20,6 +20,11 @@ export type ObservedUnreadMembershipSeed = {
   mutedRootIds: string[];
   mutedChannelIds: string[];
 };
+export type ObservedUnreadMembershipUpdate = {
+  kind: string;
+  value: string;
+  present: boolean;
+};
 export type ObservedUnreadWireEvent = ObservedUnreadEvent & {
   channelId: string;
 };
@@ -67,7 +72,7 @@ export function ingestObservedUnread(request: {
   events: ObservedUnreadWireEvent[];
   channelLatest: Array<{ channelId: string; createdAt: number }>;
   markers: Array<{ contextId: string; readAt: number | null }>;
-  membership: Array<{ kind: string; value: string; present: boolean }>;
+  membership: ObservedUnreadMembershipUpdate[];
   clearChannels: string[];
   clearAll: boolean;
 }): Promise<ObservedUnreadResponse> {

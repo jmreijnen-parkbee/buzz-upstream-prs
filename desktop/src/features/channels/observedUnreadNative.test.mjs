@@ -26,6 +26,7 @@ installDOMShim();
 installFreshStorage();
 
 import { act } from "react";
+import { readCatchUpDiscoveryAt } from "./unreadCatchUpDiscoveryStorage.ts";
 import {
   readObservedUnreadFromStorage,
   writeObservedUnreadToStorage,
@@ -690,6 +691,97 @@ test("transient catch-up failure retries autonomously and restores unread", asyn
     );
   } finally {
     globalThis.setTimeout = originalSetTimeout;
+    await harness?.unmount();
+    rig.restore();
+  }
+});
+
+test("catch-up advances discovery only after discovered membership is durable", async () => {
+  installFreshStorage();
+  const CHANNEL = "channel-membership-watermark";
+  const ROOT = "root-older-than-overlap";
+  const DISCOVERY_THROUGH = NOW_S - 10;
+  const PUBKEY = "pk-membership-watermark";
+  const SCOPE = `${PUBKEY}:${RELAY}`;
+  let rejectMembership = true;
+  let membershipIngestFailed = false;
+  const requests = [];
+  let harness;
+  const rig = installNativeRig({
+    catchUpChannels: (request) => {
+      requests.push(request);
+      return request.channels.map((channel) => ({
+        status: "success",
+        channelId: channel.id,
+        observedEvents: [],
+        maxTrigger: 0,
+        discoveryThrough: DISCOVERY_THROUGH,
+        activityRows: [],
+        discovered: { participated: [ROOT], authored: [], mentioned: [] },
+      }));
+    },
+    failCommandWhen: (command, args) => {
+      if (command === "observed_unread_open_scope") {
+        return rejectMembership && membershipIngestFailed;
+      }
+      if (
+        rejectMembership &&
+        command === "observed_unread_ingest" &&
+        args.request.membership.length > 0
+      ) {
+        membershipIngestFailed = true;
+        return true;
+      }
+      return false;
+    },
+  });
+  try {
+    harness = await mountUnreadChannels({
+      pubkey: PUBKEY,
+      relay: RELAY,
+      channels: [{ id: CHANNEL, name: "watermark", channelType: "stream" }],
+      relayClient: makeStubRelayClient(),
+    });
+    await settle();
+    await settle();
+
+    assert.equal(
+      membershipIngestFailed,
+      true,
+      "the first run must exercise a rejected native membership commit",
+    );
+    assert.equal(readCatchUpDiscoveryAt(SCOPE, CHANNEL), null);
+    assert.equal(
+      requests[0].channels[0].discoveryAt,
+      null,
+      "the first scan starts without a discovery watermark",
+    );
+
+    rejectMembership = false;
+    await harness.unmount();
+    harness = null;
+    const retry = await mountUnreadChannels({
+      pubkey: PUBKEY,
+      relay: RELAY,
+      channels: [{ id: CHANNEL, name: "watermark", channelType: "stream" }],
+      relayClient: makeStubRelayClient(),
+    });
+    harness = retry;
+    await settle();
+    await settle();
+
+    assert.equal(
+      requests.at(-1).channels[0].discoveryAt,
+      null,
+      "a restart after failed membership persistence must repeat full discovery",
+    );
+    assert.ok(
+      rig
+        .scope({ pubkey: PUBKEY, relayUrl: RELAY })
+        .membership.has(`participated\u0000${ROOT}`),
+    );
+    assert.equal(readCatchUpDiscoveryAt(SCOPE, CHANNEL), DISCOVERY_THROUGH);
+  } finally {
     await harness?.unmount();
     rig.restore();
   }

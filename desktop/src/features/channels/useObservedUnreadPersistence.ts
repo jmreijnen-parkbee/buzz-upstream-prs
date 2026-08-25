@@ -23,9 +23,12 @@ import {
 import {
   ingestObservedUnread,
   openObservedUnreadScope,
-  type ObservedUnreadProjection,
-  type ObservedUnreadResponse,
-  type ObservedUnreadWireEvent,
+} from "@/shared/api/tauriObservedUnread";
+import type {
+  ObservedUnreadMembershipUpdate,
+  ObservedUnreadProjection,
+  ObservedUnreadResponse,
+  ObservedUnreadWireEvent,
 } from "@/shared/api/tauriObservedUnread";
 
 export type ObservedUnreadPersistence = {
@@ -41,6 +44,9 @@ export type ObservedUnreadPersistence = {
   ) => void;
   removeChannel: (channelId: string) => void;
   updateMembership: (kind: string, value: string, present: boolean) => void;
+  persistMembership: (
+    updates: ObservedUnreadMembershipUpdate[],
+  ) => Promise<boolean>;
   syncMarkers: (
     contextIds: Iterable<string>,
     explicitReadAt?: ReadonlyMap<string, number>,
@@ -344,9 +350,14 @@ export function useObservedUnreadPersistence(
   }, []);
 
   const enqueueNative = React.useCallback(
-    (state: NativeState, mutation: NativeMutation, onSettled?: () => void) => {
+    (
+      state: NativeState,
+      mutation: NativeMutation,
+      onSettled?: (persisted: boolean) => void,
+    ) => {
       flushNative();
       chainRef.current = chainRef.current.then(async () => {
+        let persisted = false;
         try {
           const ingest = async () => {
             const current = nativeRef.current;
@@ -355,25 +366,33 @@ export function useObservedUnreadPersistence(
               current.scope.pubkey !== state.scope.pubkey ||
               current.scope.relayUrl !== state.scope.relayUrl
             )
-              return true;
+              return "scopeChanged" as const;
             const response = await ingestObservedUnread({
               scope: current.scope,
               sequence: current.sequence + 1,
               baseRevision: current.revision,
               ...mutation,
             });
-            if (response.kind === "snapshotRequired") return false;
+            if (response.kind === "snapshotRequired") return "retry" as const;
             apply(response);
-            return true;
+            return "persisted" as const;
           };
 
           try {
-            if (await ingest()) return;
+            const result = await ingest();
+            if (result !== "retry") {
+              persisted = result === "persisted";
+              return;
+            }
           } catch {}
 
           try {
             await reopen(state.scope);
-            if (await ingest()) return;
+            const result = await ingest();
+            if (result !== "retry") {
+              persisted = result === "persisted";
+              return;
+            }
           } catch {}
 
           if (
@@ -383,7 +402,7 @@ export function useObservedUnreadPersistence(
             seedFallback(mutation);
           }
         } finally {
-          onSettled?.();
+          onSettled?.(persisted);
         }
       });
     },
@@ -418,7 +437,8 @@ export function useObservedUnreadPersistence(
           clearChannels: [],
           clearAll: false,
         },
-        () => {
+        (persisted) => {
+          if (!persisted) return;
           if (scopeLoadedRef.current !== scopeKey) return;
           const current = pendingMarkersRef.current.get(scopeKey);
           if (!current) return;
@@ -615,20 +635,34 @@ export function useObservedUnreadPersistence(
     [enqueueNative],
   );
 
-  const updateMembership = React.useCallback(
-    (kind: string, value: string, present: boolean) => {
+  const persistMembership = React.useCallback(
+    (membership: ObservedUnreadMembershipUpdate[]) => {
+      if (membership.length === 0) return Promise.resolve(true);
       const state = nativeRef.current;
-      if (!state) return;
-      enqueueNative(state, {
-        events: [],
-        channelLatest: [],
-        markers: [],
-        membership: [{ kind, value, present }],
-        clearChannels: [],
-        clearAll: false,
+      if (!state) return Promise.resolve(false);
+      return new Promise<boolean>((resolve) => {
+        enqueueNative(
+          state,
+          {
+            events: [],
+            channelLatest: [],
+            markers: [],
+            membership,
+            clearChannels: [],
+            clearAll: false,
+          },
+          resolve,
+        );
       });
     },
     [enqueueNative],
+  );
+
+  const updateMembership = React.useCallback(
+    (kind: string, value: string, present: boolean) => {
+      void persistMembership([{ kind, value, present }]);
+    },
+    [persistMembership],
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mutable storage refs are stable containers
@@ -680,6 +714,7 @@ export function useObservedUnreadPersistence(
       schedule,
       removeChannel,
       updateMembership,
+      persistMembership,
       syncMarkers,
       advanceLatest,
       latestForChannel,
@@ -692,6 +727,7 @@ export function useObservedUnreadPersistence(
       schedule,
       removeChannel,
       updateMembership,
+      persistMembership,
       syncMarkers,
       advanceLatest,
       latestForChannel,

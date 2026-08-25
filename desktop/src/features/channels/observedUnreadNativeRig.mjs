@@ -166,6 +166,7 @@ export function installNativeRig(options = {}) {
     catchUpChannels = () => [],
     failCommands = new Set(),
     failOnceCommands = new Set(),
+    failCommandWhen = () => false,
   } = options;
 
   const scopes = new Map();
@@ -331,7 +332,11 @@ export function installNativeRig(options = {}) {
 
   const invoke = async (command, args = {}) => {
     calls.push({ command, args });
-    if (failCommands.has(command) || failOnceCommands.delete(command)) {
+    if (
+      failCommands.has(command) ||
+      failOnceCommands.delete(command) ||
+      failCommandWhen(command, args, calls)
+    ) {
       throw new Error(`rig: ${command} configured to fail`);
     }
     const handler = handlers[command];
