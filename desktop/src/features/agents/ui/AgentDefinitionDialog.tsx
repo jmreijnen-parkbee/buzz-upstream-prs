@@ -8,10 +8,8 @@ import type {
   UpdatePersonaInput,
 } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
-import { useFeatureEnabled } from "@/shared/features/useFeatureEnabled";
 import { Input } from "@/shared/ui/input";
-import { Textarea } from "@/shared/ui/textarea";
-import { RelaySkillPicker } from "./RelaySkillPicker";
+import { AgentInstructionsField } from "./AgentInstructionsField";
 import { AgentCreationPreview } from "./AgentCreationPreview";
 import { PersonaDropdownField } from "./PersonaDropdownField";
 import type { EnvVarsValue } from "./EnvVarsEditor";
@@ -139,7 +137,6 @@ export function AgentDefinitionDialog({
   createRunSection,
   createSubmitBlocked = false,
 }: AgentDefinitionDialogProps) {
-  const sharedInstructionsEnabled = useFeatureEnabled("sharedInstructions");
   const runtimesLoading = runtimeCatalogStatus === "loading";
   const [displayName, setDisplayName] = React.useState("");
   const [aiDefaultsOpen, setAiDefaultsOpen] = React.useState(false);
@@ -796,54 +793,16 @@ export function AgentDefinitionDialog({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          {sharedInstructionsEnabled ? (
-            <RelaySkillPicker
-              disabled={isPending}
-              label="Agent instructions"
-              labelFor="persona-system-prompt"
-              onChange={(coordinates) => {
-                setAssignedRelaySkills(coordinates);
-                setHasUserChanges(true);
-              }}
-              selected={assignedRelaySkills}
-            >
-              <Textarea
-                className={cn(
-                  "h-full min-h-28 resize-none px-3 py-3 leading-5",
-                  PERSONA_FIELD_CONTROL_CLASS,
-                )}
-                disabled={isPending}
-                id="persona-system-prompt"
-                onChange={(event) => setSystemPrompt(event.target.value)}
-                placeholder="Describe what this agent should do."
-                value={systemPrompt}
-              />
-            </RelaySkillPicker>
-          ) : (
-            <>
-              <label
-                className="text-sm font-medium text-foreground"
-                htmlFor="persona-system-prompt"
-              >
-                Agent instructions
-              </label>
-              <div className={PERSONA_FIELD_SHELL_CLASS}>
-                <Textarea
-                  className={cn(
-                    "min-h-40 resize-y px-3 py-3 leading-5",
-                    PERSONA_FIELD_CONTROL_CLASS,
-                  )}
-                  disabled={isPending}
-                  id="persona-system-prompt"
-                  onChange={(event) => setSystemPrompt(event.target.value)}
-                  placeholder="Describe what this agent should do."
-                  value={systemPrompt}
-                />
-              </div>
-            </>
-          )}
-        </div>
+        <AgentInstructionsField
+          assignedRelaySkills={assignedRelaySkills}
+          disabled={isPending}
+          onAssignedRelaySkillsChange={(coordinates) => {
+            setAssignedRelaySkills(coordinates);
+            setHasUserChanges(true);
+          }}
+          onSystemPromptChange={setSystemPrompt}
+          systemPrompt={systemPrompt}
+        />
 
         {modelFieldVisible ? (
           <AgentAiConfigurationModeField

@@ -987,7 +987,6 @@ mod import_avatar_tests {
 
         assert_eq!(result.unwrap_err(), "relay upload failed");
     }
-
     #[tokio::test]
     async fn malformed_inline_avatar_fails_before_upload() {
         let result =
@@ -995,7 +994,6 @@ mod import_avatar_tests {
                 panic!("malformed avatars must not be uploaded")
             })
             .await;
-
         assert_eq!(result.unwrap_err(), "Snapshot avatar data is malformed.");
     }
 }

@@ -971,7 +971,6 @@ export type ThreadRepliesResponse = {
   /** Present only when a full page was returned — pass back to fetch the next page. */
   nextCursor: ThreadCursor | null;
 };
-
 /**
  * Composite backward keyset cursor for channel-timeline paging via the bridge
  * (`getChannelMessagesBefore`).
@@ -986,16 +985,13 @@ export type ChannelPageCursor = {
   createdAt: number;
   eventId: string;
 };
-
 export type ChannelMessagesPageResponse = {
   /** One keyset page of top-level history, relay order (newest first). */
   events: RelayEvent[];
   /** Present only when a full page was returned — pass back to fetch the next (older) page. */
   nextCursor: ChannelPageCursor | null;
 };
-
 // ── Global agent configuration ────────────────────────────────────────────────
-
 /**
  * Global agent configuration defaults applied to ALL agents.
  *
@@ -1014,7 +1010,6 @@ export type GlobalAgentConfig = {
   /** Preferred ACP runtime for agents without a persona-specific runtime. */
   preferred_runtime: string | null;
 };
-
 /**
  * Result returned by `set_global_agent_config`.
  *

@@ -1141,7 +1141,6 @@ pub async fn delete_managed_agent(
                     );
                 }
             }
-
             let persona_id = records
                 .iter()
                 .find(|record| record.pubkey == pubkey)
@@ -1170,7 +1169,6 @@ pub async fn delete_managed_agent(
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?
 }
-
 // Remote agent shutdown is handled entirely by the frontend:
 // 1. Frontend sends "!shutdown" @mention via WebSocket (signed by user's key)
 // 2. Harness sees it, exits gracefully, sets presence to "offline"
@@ -1185,13 +1183,11 @@ pub(super) use deploy::build_deploy_payload;
 use deploy::{deploy_payload_json, DeployProjections};
 #[cfg(test)]
 use deploy::{ensure_remote_provider_supported, resolve_deploy_model_provider};
-
 #[path = "agents_profile.rs"]
 mod profile;
 pub(crate) use profile::*;
 #[cfg(test)]
 use profile::{profile_needs_sync, resolve_legacy_avatar};
-
 #[cfg(test)]
 #[path = "agents_tests.rs"]
 mod tests;

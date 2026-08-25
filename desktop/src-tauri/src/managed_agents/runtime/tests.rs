@@ -1208,7 +1208,6 @@ fn minimal_record(pubkey: &str) -> crate::managed_agents::ManagedAgentRecord {
     ))
     .expect("minimal_record fixture")
 }
-
 fn make_pair_runtime_placeholder() -> crate::managed_agents::ManagedAgentPairRuntime {
     use std::process::{Command, Stdio};
     // Spawn a real child so ManagedAgentProcess's Child field is satisfied.
