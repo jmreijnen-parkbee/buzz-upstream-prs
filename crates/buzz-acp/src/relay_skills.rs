@@ -8,6 +8,7 @@ use crate::relay::RestClient;
 
 const SKILL_KIND: u16 = 30023;
 const MAX_SKILLS: usize = 64;
+const MAX_SLUG_BYTES: usize = 80;
 const MAX_DESCRIPTION_BYTES: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,7 +25,14 @@ fn parse_coordinate(raw: &str) -> Option<Coordinate> {
     }
     let publisher = PublicKey::from_hex(parts.next()?).ok()?;
     let slug = parts.next()?.to_string();
-    (!slug.is_empty()).then_some(Coordinate {
+    (!slug.is_empty()
+        && slug.len() <= MAX_SLUG_BYTES
+        && slug.chars().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '-' | '_' | '.')
+        }))
+    .then_some(Coordinate {
         raw: raw.to_string(),
         publisher,
         slug,
@@ -153,6 +161,18 @@ fn clean_single_line(value: &str) -> String {
 mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Tag, Timestamp};
+
+    #[test]
+    fn rejects_slugs_the_lazy_fetch_command_cannot_accept() {
+        let publisher = Keys::generate().public_key().to_hex();
+        assert!(parse_coordinate(&format!("30023:{publisher}:valid_slug-1.0")).is_some());
+        assert!(parse_coordinate(&format!("30023:{publisher}:Uppercase")).is_none());
+        assert!(parse_coordinate(&format!(
+            "30023:{publisher}:{}",
+            "x".repeat(MAX_SLUG_BYTES + 1)
+        ))
+        .is_none());
+    }
 
     #[test]
     fn exact_query_filters_do_not_admit_author_slug_cross_products() {

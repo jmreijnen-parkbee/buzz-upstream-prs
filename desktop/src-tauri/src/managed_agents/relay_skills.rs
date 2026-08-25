@@ -17,7 +17,7 @@ use tauri::State;
 use crate::{app_state::AppState, native_relay_client::NativeRelayClient};
 
 pub const RELAY_SKILL_KIND: u16 = 30023;
-pub const MAX_RELAY_SKILL_SLUG_BYTES: usize = 255;
+pub const MAX_RELAY_SKILL_SLUG_BYTES: usize = 80;
 pub const MAX_AGENT_SKILL_NAME_BYTES: usize = 64;
 pub const MAX_AGENT_SKILL_DESCRIPTION_BYTES: usize = 1024;
 pub const MAX_ASSIGNED_RELAY_SKILLS: usize = 64;
