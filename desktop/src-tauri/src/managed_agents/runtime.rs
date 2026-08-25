@@ -15,6 +15,7 @@ use crate::{
 };
 
 use super::claude_config::{apply_claude_model_env, apply_effort_env};
+use super::relay_skills::resolve_and_apply_assigned_relay_skills_env;
 mod path;
 pub(in crate::managed_agents) use path::build_augmented_path;
 pub(crate) use path::{compose_path_entries, should_skip_claude_executable, should_use_inherited};
@@ -695,8 +696,7 @@ pub fn spawn_agent_child(
         command.env_remove("BUZZ_ACP_TEAM_INSTRUCTIONS");
     }
     let assigned_relay_skills =
-        super::effective_config::resolve_effective_assigned_relay_skills(record, &personas)?;
-    super::relay_skills::apply_assigned_relay_skills_env(&mut command, assigned_relay_skills);
+        resolve_and_apply_assigned_relay_skills_env(&mut command, record, &personas)?;
 
     // Prompt, model, and provider all come from the single `effective_cfg`
     // resolved at the top of this function — the SAME resolve the spawn-config

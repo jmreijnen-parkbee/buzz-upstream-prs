@@ -27,6 +27,19 @@ const MAX_MY_RELAY_SKILL_NOTES: usize = 500;
 const MAX_RELAY_SKILL_TITLE_BYTES: usize = 280;
 const ASSIGNED_RELAY_SKILLS_ENV: &str = "BUZZ_ACP_ASSIGNED_RELAY_SKILLS";
 
+pub(crate) fn resolve_and_apply_assigned_relay_skills_env<'a>(
+    command: &mut std::process::Command,
+    record: &'a crate::managed_agents::ManagedAgentRecord,
+    personas: &'a [crate::managed_agents::AgentDefinition],
+) -> Result<&'a [String], String> {
+    let assigned =
+        crate::managed_agents::effective_config::resolve_effective_assigned_relay_skills(
+            record, personas,
+        )?;
+    apply_assigned_relay_skills_env(command, assigned);
+    Ok(assigned)
+}
+
 pub(crate) fn apply_assigned_relay_skills_env(
     command: &mut std::process::Command,
     coordinates: &[String],
@@ -736,12 +749,9 @@ mod tests {
 
         let definitions = [definition];
         let assigned =
-            crate::managed_agents::effective_config::resolve_effective_assigned_relay_skills(
-                &record,
-                &definitions,
-            )
-            .unwrap();
-        apply_assigned_relay_skills_env(&mut command, assigned);
+            resolve_and_apply_assigned_relay_skills_env(&mut command, &record, &definitions)
+                .unwrap();
+        assert_eq!(assigned, definitions[0].assigned_relay_skills);
 
         let env = command
             .get_envs()

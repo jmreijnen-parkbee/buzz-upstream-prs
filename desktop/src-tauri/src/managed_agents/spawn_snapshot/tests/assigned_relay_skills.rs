@@ -18,9 +18,12 @@ fn restart_stamp_uses_live_shared_instructions_and_clears_diff() {
     let effective = resolve_effective_config(&rec, &personas, &global)
         .require_resolved()
         .unwrap();
+    let mut command = std::process::Command::new("buzz-acp");
     let assigned =
-        crate::managed_agents::effective_config::resolve_effective_assigned_relay_skills(
-            &rec, &personas,
+        crate::managed_agents::relay_skills::resolve_and_apply_assigned_relay_skills_env(
+            &mut command,
+            &rec,
+            &personas,
         )
         .unwrap();
     let stamped = SpawnConfigSnapshot::from_inputs(SpawnConfigInputs {
