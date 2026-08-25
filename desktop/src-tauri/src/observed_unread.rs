@@ -47,11 +47,8 @@ pub(crate) struct ObservedUnreadScope {
 
 impl ObservedUnreadScope {
     fn key(&self) -> String {
-        format!(
-            "{}:{}",
-            self.pubkey.trim().to_ascii_lowercase(),
-            self.relay_url.trim().trim_end_matches('/')
-        )
+        let relay = self.relay_url.trim().trim_end_matches('/');
+        format!("{}:{}", self.pubkey.trim(), relay).to_ascii_lowercase()
     }
 }
 
@@ -968,6 +965,14 @@ mod tests {
 
     #[test]
     fn serialized_response_matches_typescript_contract() {
+        assert_eq!(
+            ObservedUnreadScope {
+                pubkey: " PK ".into(),
+                relay_url: " WSS://Relay.Example/ ".into()
+            }
+            .key(),
+            "pk:wss://relay.example"
+        );
         let actual = serde_json::to_value(ObservedUnreadResponse::Delta {
             scope: scope(),
             generation: "gen".into(),
