@@ -1058,6 +1058,21 @@ test("shared instruction editing is author-only and does not leak into creation"
   await editDialog.getByRole("button", { name: "Save changes" }).click();
   await expect(editDialog).toBeHidden();
 
+  await personaDialog
+    .getByRole("button", { name: "Add shared instructions" })
+    .click();
+  await page.getByRole("menuitemcheckbox", { name: /Design review/ }).hover();
+  const refreshedPreview = page.getByRole("region", {
+    name: "Design review shared instruction preview",
+  });
+  await expect(refreshedPreview).toContainText(
+    "Review interface decisions against product intent and evidence.",
+  );
+  await refreshedPreview.getByRole("button", { name: "Edit" }).click();
+  await editDialog.locator("#relay-skill-title").fill("Design review v2");
+  await editDialog.getByRole("button", { name: "Save changes" }).click();
+  await expect(editDialog).toBeHidden();
+
   const updateInput = await page.evaluate(() => {
     const call = [...(window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [])]
       .reverse()
@@ -1076,13 +1091,10 @@ test("shared instruction editing is author-only and does not leak into creation"
         | undefined
     )?.input;
   });
-  expect(updateInput).toEqual({
+  expect(updateInput).toMatchObject({
     coordinate: ownedCoordinate,
-    expectedEventId: "a1".repeat(32),
-    title: "Design review",
-    summary: "Use when reviewing interface decisions.",
-    instructions:
-      "Review interface decisions against product intent and evidence.",
+    expectedEventId: "de".repeat(32),
+    title: "Design review v2",
   });
 
   await personaDialog

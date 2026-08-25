@@ -14025,14 +14025,40 @@ export function maybeInstallE2eTauriMocks() {
           }
         ).input;
         const [, publisher = "", slug = ""] = input.coordinate.split(":", 3);
+        const eventId = "de".repeat(32);
+        const updatedAt = 1_700_000_001;
+        const mock = getConfig()?.mock;
+        const cover = mock?.relaySkills?.find(
+          (candidate) => candidate.coordinate === input.coordinate,
+        );
+        if (cover) {
+          Object.assign(cover, {
+            title: input.title,
+            summary: input.summary,
+            eventId,
+            updatedAt,
+          });
+        }
+        const detail = mock?.relaySkillDetails?.find(
+          (candidate) => candidate.coordinate === input.coordinate,
+        );
+        if (detail) {
+          Object.assign(detail, {
+            title: input.title,
+            summary: input.summary,
+            content: input.instructions,
+            eventId,
+            updatedAt,
+          });
+        }
         return {
           coordinate: input.coordinate,
           publisher,
           slug,
           title: input.title,
           summary: input.summary,
-          eventId: "de".repeat(32),
-          updatedAt: 1_700_000_001,
+          eventId,
+          updatedAt,
           compatible: true,
           incompatibilities: [],
         };

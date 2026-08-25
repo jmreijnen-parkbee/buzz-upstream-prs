@@ -60,6 +60,10 @@ export function RelaySkillPreviewButton({
   const [open, setOpen] = React.useState(false);
   const [previewState, setPreviewState] = React.useState<PreviewState>("idle");
   const [detail, setDetail] = React.useState<ResolvedRelaySkill | null>(null);
+  const currentDetail =
+    detail?.coordinate === skill.coordinate && detail.eventId === skill.eventId
+      ? detail
+      : null;
   const contentRef = React.useRef<HTMLDivElement | null>(null);
   const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -140,7 +144,7 @@ export function RelaySkillPreviewButton({
   }, [clearHoverTimer, closeWithDelay, open]);
 
   React.useEffect(() => {
-    if (!open || detail?.coordinate === skill.coordinate) {
+    if (!open || currentDetail) {
       return;
     }
 
@@ -161,10 +165,10 @@ export function RelaySkillPreviewButton({
     return () => {
       active = false;
     };
-  }, [detail?.coordinate, open, skill.coordinate]);
+  }, [currentDetail, open, skill.coordinate]);
 
-  const displayTitle = detail?.title || skill.title || skill.slug;
-  const displaySummary = detail?.summary || skill.summary;
+  const displayTitle = currentDetail?.title || skill.title || skill.slug;
+  const displaySummary = currentDetail?.summary || skill.summary;
   const focusPreviewOnTab = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Tab" || event.shiftKey || !open) return;
     event.preventDefault();
@@ -271,14 +275,14 @@ export function RelaySkillPreviewButton({
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <BookOpen className="h-4 w-4" /> Shared instruction
               </div>
-              {onEdit && detail?.editable ? (
+              {onEdit && currentDetail?.editable ? (
                 <Button
                   className="h-7 gap-1.5 px-2 text-xs"
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                     setOpen(false);
-                    onEdit(detail);
+                    onEdit(currentDetail);
                   }}
                   size="sm"
                   type="button"
@@ -310,9 +314,9 @@ export function RelaySkillPreviewButton({
                 replaced.
               </p>
             ) : null}
-            {detail ? (
+            {currentDetail ? (
               <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
-                {detail.content}
+                {currentDetail.content}
               </pre>
             ) : null}
           </div>
