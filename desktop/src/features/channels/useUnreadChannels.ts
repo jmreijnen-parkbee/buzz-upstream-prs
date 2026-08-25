@@ -133,9 +133,7 @@ export function useUnreadChannels(
   const channelsRef = React.useRef(channels);
   channelsRef.current = channels;
 
-  // Channels manually marked unread this session. NIP-RS markers are monotonic,
-  // so this flag creates the badge without lowering synced read state.
-  // Persisted to buzz-forced-unread.v1 for cross-reload and rail-observer visibility.
+  // Manual unread survives reload without lowering monotonic NIP-RS markers.
   const forcedUnreadRef = React.useRef<ForcedUnreadMap>(
     pubkey ? forcedUnreadStore.read(pubkey) : {},
   );
@@ -156,15 +154,10 @@ export function useUnreadChannels(
   const mutedChannelIdsRef = React.useRef<ReadonlySet<string>>(EMPTY_ROOT_IDS);
   mutedChannelIdsRef.current = mutedChannelIdsOption ?? EMPTY_ROOT_IDS;
 
-  // Thread reply events that triggered notifications — surfaced in the Home
-  // activity feed as synthetic FeedItems. The buffer is the source of truth
-  // between coalesced writes; useThreadActivityPersistence owns the loaded
-  // scope, the write timer, flush, and hydration.
+  // Notification-triggering replies buffered for the Home activity feed.
   const threadActivityRef = React.useRef<ThreadActivityItem[]>([]);
 
-  // Tracks which channels we've already issued a catch-up REQ for this
-  // session. Prevents re-fetching on every channels-list refetch, while still
-  // letting newly-joined channels be caught up. Reset on identity change.
+  // Session catch-up claims prevent refetch churn while admitting newly joined channels.
   const caughtUpChannelsRef = React.useRef(new Set<string>());
 
   const [latestVersion, bumpLatestVersion] = React.useReducer(
@@ -771,6 +764,8 @@ export function useUnreadChannels(
     scheduleCatchUpRetry,
   ]);
 
+  // Derive unread and high-priority projections together so they invalidate
+  // from the same read-state snapshot.
   const rawUnread =
     // biome-ignore lint/correctness/useExhaustiveDependencies: readStateVersion and latestVersion are intentional invalidation signals
     React.useMemo(() => {
@@ -836,7 +831,7 @@ export function useUnreadChannels(
           if (!isForcedUnread) continue;
           unread.add(channel.id);
           topLevelUnread.add(channel.id);
-          counts.set(channel.id, 1);
+          if (channel.channelType === "dm") counts.set(channel.id, 1);
           unreadChannelNotificationCount += 1;
           continue;
         }
@@ -858,13 +853,17 @@ export function useUnreadChannels(
             observedEvents,
             readAtForObservedEvent,
           );
-        counts.set(channel.id, badgeCount);
-        unreadChannelNotificationCount +=
+        const appBadgeCount =
           nativeProjection?.appBadgeCount ??
           countUnreadAppBadgeObservedEvents(
             observedEvents,
             readAtForObservedEvent,
           );
+        counts.set(
+          channel.id,
+          channel.channelType === "dm" ? badgeCount : appBadgeCount,
+        );
+        unreadChannelNotificationCount += appBadgeCount;
 
         // DM channels: any unread DM is high-priority.
         if (channel.channelType === "dm") {

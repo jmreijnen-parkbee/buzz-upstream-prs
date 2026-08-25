@@ -1,4 +1,5 @@
 import * as React from "react";
+import { toast } from "sonner";
 import { Hash, LogIn } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -13,6 +14,7 @@ import { useRelaySelfQuery } from "@/features/moderation/hooks";
 import { DropZoneOverlay } from "@/features/messages/ui/ComposerAttachments";
 import { MessageThreadPanel } from "@/features/messages/ui/MessageThreadPanel";
 import { MessageThreadPanelSkeleton } from "@/features/messages/ui/MessageThreadPanelSkeleton";
+import { ThreadRepliesErrorCard } from "@/features/messages/ui/MessageThreadReplyState";
 import {
   MessageTimeline,
   type MessageTimelineHandle,
@@ -23,6 +25,7 @@ import {
   hasOtherDmParticipant,
 } from "@/features/channels/lib/dmHuddleMembers";
 import { buildVideoReviewPresentationByMessageId } from "@/features/messages/lib/videoReviewContext";
+import { isThreadReply } from "@/features/messages/lib/threading";
 import { useComposerHeightPadding } from "@/features/messages/ui/useComposerHeightPadding";
 import { UserProfilePanel } from "@/features/profile/ui/UserProfilePanel";
 import { AgentSessionThreadPanel } from "@/features/channels/ui/AgentSessionThreadPanel";
@@ -95,6 +98,8 @@ export const ChannelPane = React.memo(function ChannelPane({
   welcomeKickoffSettingUp = false,
   messages,
   threadSummaries,
+  huddleThreadRepliesError = false,
+  onRetryHuddleThreadReplies,
   firstUnreadMessageId = null,
   unreadCount = 0,
   canResetThreadPanelWidth,
@@ -151,6 +156,8 @@ export const ChannelPane = React.memo(function ChannelPane({
   threadHeadMessage,
   threadMessages,
   threadMessagesPending = false,
+  threadMessagesError = false,
+  onRetryThreadReplies,
   threadPanelWidthPx,
   threadScrollTargetId,
   threadTypingPubkeys,
@@ -187,8 +194,7 @@ export const ChannelPane = React.memo(function ChannelPane({
       channelPaneMountedRef.current = false;
     };
   }, []);
-  // Clear only the auto-send key so thread state survives deferred submission;
-  // older wrappers fall back to goChannel to prevent back-navigation replay.
+  // Preserve thread state through deferred submission; legacy wrappers fall back to goChannel.
   const handleAutoSubmitComplete = React.useCallback(() => {
     if (onAutoSendComplete) {
       onAutoSendComplete();
@@ -220,11 +226,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     isActiveWelcomeChannel,
     currentPubkey ?? null,
   );
-  const isEditInThread =
-    editTarget != null &&
-    threadHeadMessage != null &&
-    (editTarget.id === threadHeadMessage.id ||
-      threadMessages.some((entry) => entry.message.id === editTarget.id));
+  const isEditInThread = editTarget?.isThreadReply === true;
   const mainEditTarget = editTarget && !isEditInThread ? editTarget : null;
   const threadEditTarget = editTarget && isEditInThread ? editTarget : null;
   const findLastOwnEditable = React.useCallback(
@@ -247,27 +249,9 @@ export const ChannelPane = React.memo(function ChannelPane({
     },
     [onEdit, currentPubkey],
   );
-  const handleEditLastOwnMainMessage = React.useCallback((): boolean => {
-    const target = findLastOwnEditable(messages);
-    if (!target || !onEdit) return false;
-    onEdit(target);
-    return true;
-  }, [findLastOwnEditable, messages, onEdit]);
 
-  const handleEditLastOwnThreadMessage = React.useCallback((): boolean => {
-    if (!onEdit) return false;
-    const scope: TimelineMessage[] = [];
-    if (threadHeadMessage) scope.push(threadHeadMessage);
-    for (const entry of threadMessages) scope.push(entry.message);
-    const target = findLastOwnEditable(scope);
-    if (!target) return false;
-    onEdit(target);
-    return true;
-  }, [findLastOwnEditable, onEdit, threadHeadMessage, threadMessages]);
   const timeoutState = useTimeoutState();
-  // A moderation DM (1:1 with the relay identity) is read-only for the member;
-  // only DMs pay for the NIP-11 `self` lookup. Fails open: no `relaySelf` →
-  // ordinary DM, composer enabled.
+  // Moderation DMs are read-only; lookup only for DMs and fail open without relaySelf.
   const relaySelfQuery = useRelaySelfQuery(activeChannel?.channelType === "dm");
   const isModerationDmChannel = isModerationDm(
     activeChannel ?? null,
@@ -352,10 +336,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     !isMainDeferredEditPending &&
     !isSinglePanelView;
   const hasTypingActivity = typingPubkeys.length > 0;
-  // Unified working set for the composer bar: observer-derived turns primary,
-  // bot typing fallback (both folded together by agentWorkingSignal). This is
-  // what makes the bar show for an agent whose observer stream is live but
-  // whose typing signal never arrives — and vice versa.
+  // Unified observer + typing signal keeps the composer bar accurate if either source lags.
   const composerWorkingBotPubkeys = useChannelWorkingAgentPubkeys(
     activeChannel?.id ?? null,
   );
@@ -461,6 +442,81 @@ export const ChannelPane = React.memo(function ChannelPane({
     useFocusThreadDrawer,
     onCloseThread,
   );
+  const pendingMainEditRef = React.useRef<TimelineMessage | null>(null);
+  const editTargetRef = React.useRef(editTarget);
+  editTargetRef.current = editTarget;
+  const pendingMainEditContextRef = React.useRef({
+    channelId: activeChannel?.id ?? null,
+    threadId: threadHeadMessage?.id ?? null,
+  });
+  const pendingMainEditContext = {
+    channelId: activeChannel?.id ?? null,
+    threadId: threadHeadMessage?.id ?? null,
+  };
+  const previousPendingContext = pendingMainEditContextRef.current;
+  if (
+    previousPendingContext.channelId !== pendingMainEditContext.channelId ||
+    (previousPendingContext.threadId !== null &&
+      pendingMainEditContext.threadId !== null &&
+      previousPendingContext.threadId !== pendingMainEditContext.threadId)
+  ) {
+    pendingMainEditRef.current = null;
+  }
+  pendingMainEditContextRef.current = pendingMainEditContext;
+  const handleRoutedEdit = React.useCallback(
+    (message: TimelineMessage): boolean => {
+      const currentEditTarget = editTargetRef.current;
+      if (
+        currentEditTarget &&
+        currentEditTarget.id !== message.id &&
+        currentEditTarget.isThreadReply !== isThreadReply(message.tags ?? [])
+      ) {
+        pendingMainEditRef.current = null;
+        toast.info("Finish or cancel your edit first.");
+        return false;
+      }
+      if (currentEditTarget?.id === message.id) {
+        pendingMainEditRef.current = null;
+        onEdit?.(message);
+        return true;
+      }
+      if (
+        !isThreadReply(message.tags ?? []) &&
+        (isSinglePanelView || useFocusThreadDrawer)
+      ) {
+        pendingMainEditRef.current = message;
+        onCloseThread();
+        return true;
+      }
+      onEdit?.(message);
+      return Boolean(onEdit);
+    },
+    [isSinglePanelView, onCloseThread, onEdit, useFocusThreadDrawer],
+  );
+  const handleEditLastOwnMainMessage = React.useCallback((): boolean => {
+    const target = findLastOwnEditable(
+      mainTimelineEntries.map((entry) => entry.message),
+    );
+    return target ? handleRoutedEdit(target) : false;
+  }, [findLastOwnEditable, handleRoutedEdit, mainTimelineEntries]);
+  const handleEditLastOwnThreadMessage = React.useCallback((): boolean => {
+    const scope: TimelineMessage[] = [];
+    if (threadHeadMessage) scope.push(threadHeadMessage);
+    for (const entry of threadMessages) scope.push(entry.message);
+    const target = findLastOwnEditable(scope);
+    return target ? handleRoutedEdit(target) : false;
+  }, [
+    findLastOwnEditable,
+    handleRoutedEdit,
+    threadHeadMessage,
+    threadMessages,
+  ]);
+  React.useEffect(() => {
+    const pendingMainEdit = pendingMainEditRef.current;
+    if (!pendingMainEdit || isSinglePanelView || channelIsCovered) return;
+    pendingMainEditRef.current = null;
+    onEdit?.(pendingMainEdit);
+  }, [channelIsCovered, isSinglePanelView, onEdit]);
   const { changeThreadViewMode, layoutScrollTargetId, resolveScrollTarget } =
     useThreadViewModeSwitch({
       activeThreadHeadId: threadHeadMessage?.id ?? null,
@@ -508,6 +564,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     useFocusThreadDrawer ? (
       <FocusThreadDrawer
         channelName={activeChannel?.name ?? "channel"}
+        hasActiveEdit={threadEditTarget !== null}
         key={THREAD_SURFACE_KEY}
         onClose={onCloseThread}
       >
@@ -542,7 +599,6 @@ export const ChannelPane = React.memo(function ChannelPane({
           data-testid="channel-shared-header-backdrop"
         />
       ) : null}
-
       {!isSinglePanelView ? (
         <section
           aria-label="Channel messages and composer"
@@ -567,6 +623,11 @@ export const ChannelPane = React.memo(function ChannelPane({
           }
         >
           {isHuddleTranscript ? null : header}
+          {isHuddleTranscript && huddleThreadRepliesError ? (
+            <div className="px-5 pt-3">
+              <ThreadRepliesErrorCard onRetry={onRetryHuddleThreadReplies} />
+            </div>
+          ) : null}
           <div className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
             <MessageTimeline
               ref={messageTimelineRef}
@@ -616,7 +677,7 @@ export const ChannelPane = React.memo(function ChannelPane({
               firstUnreadMessageId={firstUnreadMessageId}
               unreadCount={unreadCount}
               onDelete={onDelete}
-              onEdit={onEdit}
+              onEdit={handleRoutedEdit}
               onMarkUnread={onMarkUnread}
               onMarkRead={onMarkRead}
               onReply={timelineReplyHandler}
@@ -692,6 +753,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   ) : null}
                   <ComposerDockBackdrop gutterClassName="inset-x-5" />
                   <MessageComposer
+                    audienceContext={{ type: "channel" }}
                     channelId={activeChannel?.id ?? null}
                     channelName={activeChannel?.name ?? "channel"}
                     channelType={activeChannel?.channelType ?? null}
@@ -757,15 +819,7 @@ export const ChannelPane = React.memo(function ChannelPane({
           </div>
         </section>
       ) : null}
-
-      {/*
-       * `AnimatePresence` keeps the focus thread drawer mounted through its exit
-       * animation — without it the drawer's own existence condition
-       * (`useFocusThreadDrawer`, which is derived from `threadHeadMessage`) goes
-       * false on the same frame as the close, and there is nothing left to
-       * animate. It can hold the real thread through the exit rather than a
-       * frozen snapshot because the panel is fully prop-driven.
-       */}
+      {/* Keep the focus drawer mounted with live props through its exit animation. */}
       <AnimatePresence onExitComplete={markExitComplete}>
         {channelManagementOpen && activeChannel ? (
           <ChannelManagementAuxiliaryPanel
@@ -807,7 +861,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                 onCancelReply={onCancelThreadReply}
                 onClose={onCloseThread}
                 onDelete={onDelete}
-                onEdit={onEdit}
+                onEdit={handleRoutedEdit}
                 onEditLastOwnMessage={handleEditLastOwnThreadMessage}
                 onEditSave={onEditSave}
                 onFollowThread={onFollowThread}
@@ -832,6 +886,8 @@ export const ChannelPane = React.memo(function ChannelPane({
                 widthPx={threadPanelWidthPx}
                 threadReplies={threadMessages}
                 threadRepliesPending={threadMessagesPending}
+                threadRepliesError={threadMessagesError}
+                onRetryThreadReplies={onRetryThreadReplies}
                 threadUnreadCount={threadUnreadCounts?.get(
                   threadHeadMessage.id,
                 )}

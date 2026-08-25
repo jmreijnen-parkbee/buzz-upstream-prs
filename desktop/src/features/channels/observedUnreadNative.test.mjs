@@ -911,10 +911,9 @@ test("matrix: a rebuilt store generation is reopened instead of wedging on the o
 // ── The badge lane below the projection ──────────────────────────────────────
 //
 // `matrix: an ingested event reaches the projection the badge reads` asserts
-// projectionsRef — the map. It never reads the `rawUnread` memo that turns a
-// projection into unreadChannelIds / unreadChannelCounts, so the whole native
-// badge lane had no witness: forcing `nativeProjection?.count ?? 0` to a
-// constant 0 left the full 4,919-test suite green. This closes that.
+// projectionsRef — the map. This lane verifies the hook still surfaces every
+// authoritative thread ID past the 100-row activity preview while ordinary
+// thread activity remains on the non-numeric dot tier.
 
 test("native: every unread thread ID reaches the hook beyond the activity preview cap", async () => {
   installFreshStorage();
@@ -969,8 +968,8 @@ test("native: every unread thread ID reaches the hook beyond the activity previe
 
     assert.equal(
       second.result.unreadChannelCounts.get(CHANNEL),
-      101,
-      "the native badgeCount must reach unreadChannelCounts; asserting projectionsRef alone leaves this lane untested",
+      0,
+      "ordinary thread activity stays on the dot tier instead of becoming a numeric mention badge",
     );
     assert.ok(
       second.result.unreadChannelIds.has(CHANNEL),
