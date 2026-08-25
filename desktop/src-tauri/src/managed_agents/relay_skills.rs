@@ -25,6 +25,18 @@ pub const MAX_RELAY_SKILL_BODY_BYTES: usize = 32 * 1024;
 const RELAY_SKILL_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_MY_RELAY_SKILL_NOTES: usize = 500;
 const MAX_RELAY_SKILL_TITLE_BYTES: usize = 280;
+const ASSIGNED_RELAY_SKILLS_ENV: &str = "BUZZ_ACP_ASSIGNED_RELAY_SKILLS";
+
+pub(crate) fn apply_assigned_relay_skills_env(
+    command: &mut std::process::Command,
+    coordinates: &[String],
+) {
+    if coordinates.is_empty() {
+        command.env_remove(ASSIGNED_RELAY_SKILLS_ENV);
+    } else {
+        command.env(ASSIGNED_RELAY_SKILLS_ENV, coordinates.join(","));
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -671,6 +683,20 @@ mod tests {
             .custom_created_at(Timestamp::from(created_at))
             .sign_with_keys(keys)
             .unwrap()
+    }
+
+    #[test]
+    fn assigned_relay_skill_env_is_canonical() {
+        let coordinate = format!("30023:{}:review", "a".repeat(64));
+        let mut command = std::process::Command::new("buzz-acp");
+        command.env(ASSIGNED_RELAY_SKILLS_ENV, "user-supplied");
+        apply_assigned_relay_skills_env(&mut command, std::slice::from_ref(&coordinate));
+        let env = command
+            .get_envs()
+            .find(|(key, _)| *key == ASSIGNED_RELAY_SKILLS_ENV)
+            .and_then(|(_, value)| value)
+            .and_then(|value| value.to_str());
+        assert_eq!(env, Some(coordinate.as_str()));
     }
 
     #[test]

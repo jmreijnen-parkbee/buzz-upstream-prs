@@ -47,11 +47,12 @@ pub(crate) const RESERVED_ENV_KEYS: &[&str] = &[
     // harness cap and cause OpenClaw agents to spawn uncapped workers.
     "BUZZ_ACP_AGENTS",
     // Security gates: respond-to mode + allowlist + deployment allowlist +
-    // legacy owner-only fallback. Overriding would make the running agent's
-    // gate diverge from the saved/UI-visible settings.
+    // assigned relay instructions + legacy owner-only fallback. Overriding
+    // would make the running agent's gate diverge from saved/UI-visible state.
     "BUZZ_ACP_RESPOND_TO",
     "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
     "BUZZ_ACP_ALLOWED_RESPOND_TO",
+    "BUZZ_ACP_ASSIGNED_RELAY_SKILLS",
     "BUZZ_ACP_AGENT_OWNER",
     // Stable agent identity used for git attribution and private-conversation
     // provenance must come from the managed-agent record, not user overrides.

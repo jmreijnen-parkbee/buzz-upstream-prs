@@ -146,14 +146,14 @@ fn reserved_keys_include_agent_owner_for_legacy_records() {
 }
 
 #[test]
-fn reserved_keys_include_respond_to_gate() {
-    // Respond-to mode + allowlist control who the agent answers.
-    // Overriding via env_vars would let the running agent answer
-    // anyone even when the UI/record says owner-only.
+fn reserved_keys_include_authorization_gates() {
+    // These keys control who the agent answers and which lazy relay notes it
+    // may follow. User env must not diverge from the saved/UI-visible policy.
     for key in [
         "BUZZ_ACP_RESPOND_TO",
         "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
         "BUZZ_ACP_ALLOWED_RESPOND_TO",
+        "BUZZ_ACP_ASSIGNED_RELAY_SKILLS",
     ] {
         assert!(is_reserved_env_key(key), "{key} should be reserved");
         let agent = map(&[(key, "anyone")]);

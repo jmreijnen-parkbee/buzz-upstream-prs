@@ -694,14 +694,10 @@ pub fn spawn_agent_child(
     } else {
         command.env_remove("BUZZ_ACP_TEAM_INSTRUCTIONS");
     }
-    if record.assigned_relay_skills.is_empty() {
-        command.env_remove("BUZZ_ACP_ASSIGNED_RELAY_SKILLS");
-    } else {
-        command.env(
-            "BUZZ_ACP_ASSIGNED_RELAY_SKILLS",
-            record.assigned_relay_skills.join(","),
-        );
-    }
+    super::relay_skills::apply_assigned_relay_skills_env(
+        &mut command,
+        &record.assigned_relay_skills,
+    );
 
     // Prompt, model, and provider all come from the single `effective_cfg`
     // resolved at the top of this function — the SAME resolve the spawn-config
@@ -988,20 +984,16 @@ pub fn start_managed_agent_process(
         let _ = process.child.wait();
         return Err(error);
     }
-
     record.updated_at = now.clone();
     record.last_started_at = Some(now);
     record.last_stopped_at = None;
     record.last_exit_code = None;
     record.last_error = None;
     record.last_error_code = None;
-
     runtimes.insert(key, ManagedAgentPairRuntime::starting(process));
     Ok(())
 }
-
 #[cfg(test)]
 mod test_fixtures;
-
 #[cfg(test)]
 mod tests;
