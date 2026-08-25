@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 
 use tauri::AppHandle;
 
-#[cfg(test)]
 use crate::managed_agents::AgentDefinition;
 use crate::{
     app_state::AppState,
@@ -46,12 +45,33 @@ pub(crate) fn resolve_deploy_model_provider(
 /// `descriptor.env` is the authoritative six-layer environment. Policy values
 /// are deliberately separate because providers apply them below that layered
 /// environment, preserving the local spawn's power-user override semantics.
+#[cfg(test)]
 pub(super) fn build_launch_block(
     record: &ManagedAgentRecord,
     descriptor: &crate::managed_agents::readiness::EffectiveHarnessDescriptor,
     teams: &[crate::managed_agents::TeamRecord],
     effective_prompt: Option<&str>,
     effective_model: Option<&str>,
+    owner_pubkey: &str,
+) -> serde_json::Value {
+    build_launch_block_with_assignments(
+        record,
+        descriptor,
+        teams,
+        effective_prompt,
+        effective_model,
+        &record.assigned_relay_skills,
+        owner_pubkey,
+    )
+}
+
+fn build_launch_block_with_assignments(
+    record: &ManagedAgentRecord,
+    descriptor: &crate::managed_agents::readiness::EffectiveHarnessDescriptor,
+    teams: &[crate::managed_agents::TeamRecord],
+    effective_prompt: Option<&str>,
+    effective_model: Option<&str>,
+    assigned_relay_skills: &[String],
     owner_pubkey: &str,
 ) -> serde_json::Value {
     use crate::managed_agents::{
@@ -118,10 +138,10 @@ pub(super) fn build_launch_block(
     {
         policy_env.insert("BUZZ_ACP_TEAM_INSTRUCTIONS".into(), value);
     }
-    if !record.assigned_relay_skills.is_empty() {
+    if !assigned_relay_skills.is_empty() {
         policy_env.insert(
             "BUZZ_ACP_ASSIGNED_RELAY_SKILLS".into(),
-            record.assigned_relay_skills.join(","),
+            assigned_relay_skills.join(","),
         );
     }
 
@@ -176,6 +196,20 @@ pub(super) fn ensure_remote_provider_supported(provider: Option<&str>) -> Result
     Ok(())
 }
 
+fn live_assigned_relay_skills<'a>(
+    record: &'a ManagedAgentRecord,
+    personas: &'a [AgentDefinition],
+) -> Result<&'a [String], String> {
+    match record.persona_id.as_deref() {
+        Some(persona_id) => personas
+            .iter()
+            .find(|persona| persona.id == persona_id)
+            .map(|persona| persona.assigned_relay_skills.as_slice())
+            .ok_or_else(|| format!("linked agent definition {persona_id:?} is missing")),
+        None => Ok(record.assigned_relay_skills.as_slice()),
+    }
+}
+
 /// Build the standard agent JSON payload for provider deploy calls.
 pub(crate) fn build_deploy_payload(
     app: &AppHandle,
@@ -205,12 +239,14 @@ pub(crate) fn build_deploy_payload(
         crate::managed_agents::resolve_effective_harness_descriptor(record, &personas, &global)
             .map_err(|error| crate::managed_agents::user_facing_harness_error(&error))?;
     let owner_pubkey = super::workspace_owner_hex(state)?;
-    let launch = build_launch_block(
+    let assigned_relay_skills = live_assigned_relay_skills(record, &personas)?;
+    let launch = build_launch_block_with_assignments(
         record,
         &descriptor,
         &teams,
         effective.system_prompt.value.as_deref(),
         effective.model.value.as_deref(),
+        assigned_relay_skills,
         &owner_pubkey,
     );
 
@@ -299,6 +335,50 @@ mod tests {
             "updated_at": "2026-01-01T00:00:00Z"
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn linked_assignments_resolve_from_live_definition() {
+        let mut record = record();
+        record.persona_id = Some("persona-1".into());
+        record.assigned_relay_skills = vec!["stale-a".into(), "revoked-b".into()];
+        let mut persona: AgentDefinition = serde_json::from_value(serde_json::json!({
+            "id": "persona-1",
+            "display_name": "Persona",
+            "system_prompt": "prompt",
+            "name_pool": [],
+            "is_builtin": false,
+            "is_active": true,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        persona.assigned_relay_skills = vec!["current-a".into()];
+        let personas = [persona];
+        let current = live_assigned_relay_skills(&record, &personas).unwrap();
+        let descriptor = EffectiveHarnessDescriptor {
+            command: "goose".into(),
+            args: vec![],
+            env: BTreeMap::new(),
+        };
+        let launch = build_launch_block_with_assignments(
+            &record,
+            &descriptor,
+            &[],
+            None,
+            None,
+            current,
+            "owner-hex",
+        );
+
+        assert_eq!(
+            launch["policy_env"]["BUZZ_ACP_ASSIGNED_RELAY_SKILLS"],
+            "current-a"
+        );
+        assert!(!launch["policy_env"]["BUZZ_ACP_ASSIGNED_RELAY_SKILLS"]
+            .as_str()
+            .unwrap()
+            .contains("revoked-b"));
     }
 
     #[test]
