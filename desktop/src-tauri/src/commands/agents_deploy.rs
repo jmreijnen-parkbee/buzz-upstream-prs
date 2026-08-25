@@ -118,6 +118,12 @@ pub(super) fn build_launch_block(
     {
         policy_env.insert("BUZZ_ACP_TEAM_INSTRUCTIONS".into(), value);
     }
+    if !record.assigned_relay_skills.is_empty() {
+        policy_env.insert(
+            "BUZZ_ACP_ASSIGNED_RELAY_SKILLS".into(),
+            record.assigned_relay_skills.join(","),
+        );
+    }
 
     // B5 remote parity: when a canonical effort_level is persisted, strip
     // BUZZ_ACP_EFFORT_LEVEL from launch.env so it cannot shadow the canonical
@@ -138,7 +144,8 @@ pub(super) fn build_launch_block(
     // matching local, where `apply_claude_model_env(None)` removes both.
     let is_claude = runtime.map(|r| r.id == "claude").unwrap_or(false);
     let strip_key = |k: &str| {
-        (record.effort_level.is_some() && k.eq_ignore_ascii_case("BUZZ_ACP_EFFORT_LEVEL"))
+        k.eq_ignore_ascii_case("BUZZ_ACP_ASSIGNED_RELAY_SKILLS")
+            || (record.effort_level.is_some() && k.eq_ignore_ascii_case("BUZZ_ACP_EFFORT_LEVEL"))
             || (is_claude
                 && (k.eq_ignore_ascii_case("BUZZ_ACP_MODEL")
                     || k.eq_ignore_ascii_case("ANTHROPIC_MODEL")))
@@ -296,13 +303,19 @@ mod tests {
 
     #[test]
     fn launch_block_preserves_descriptor_and_spawn_policy() {
-        let record = record();
+        let mut record = record();
+        let coordinate = format!("30023:{}:review", "a".repeat(64));
+        record.assigned_relay_skills = vec![coordinate.clone()];
         let descriptor = EffectiveHarnessDescriptor {
             command: "goose".into(),
             args: vec!["acp".into()],
             env: BTreeMap::from([
                 ("GOOSE_MODE".into(), "custom".into()),
                 ("SECRET_FROM_PERSONA".into(), "secret".into()),
+                (
+                    "BUZZ_ACP_ASSIGNED_RELAY_SKILLS".into(),
+                    "user-supplied".into(),
+                ),
             ]),
         };
         let teams: Vec<TeamRecord> = serde_json::from_value(serde_json::json!([{
@@ -330,6 +343,11 @@ mod tests {
             launch["policy_env"]["BUZZ_ACP_TEAM_INSTRUCTIONS"],
             "Coordinate"
         );
+        assert_eq!(
+            launch["policy_env"]["BUZZ_ACP_ASSIGNED_RELAY_SKILLS"],
+            coordinate
+        );
+        assert!(launch["env"]["BUZZ_ACP_ASSIGNED_RELAY_SKILLS"].is_null());
         assert_eq!(launch["policy_env"]["BUZZ_ACP_SESSION_TITLE"], "Agent Name");
         assert_eq!(launch["policy_env"]["BUZZ_ACP_DISPLAY_NAME"], "Agent Name");
         assert_eq!(launch["policy_env"]["BUZZ_ACP_SYSTEM_PROMPT"], "prompt");
