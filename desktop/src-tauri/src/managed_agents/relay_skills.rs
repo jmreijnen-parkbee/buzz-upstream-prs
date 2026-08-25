@@ -5,7 +5,7 @@
 //! malformed publisher identities from becoming executable configuration.
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     time::Duration,
 };
 
@@ -504,12 +504,11 @@ pub(crate) struct ResolvedRelaySkill {
     pub editable: bool,
 }
 
-/// Fetch current NIP-23 heads for exact assigned coordinates in one relay REQ.
+/// Fetch current NIP-23 heads for exact assigned coordinates.
 ///
-/// The filter narrows by every requested author and slug, then the projection
-/// checks each event against the requested `(publisher, d)` pair again. This
-/// second check is the authorization boundary: a relay returning an event for
-/// an unrequested cross-product coordinate cannot make it executable.
+/// Each filter names one `(publisher, d)` pair. Keeping those constraints in
+/// the same filter avoids the author × slug cross-product that can otherwise
+/// let unrelated newer notes consume a limited result page.
 pub(crate) async fn resolve_assigned_relay_skills(
     relay_client: &NativeRelayClient,
     relay_url: String,
@@ -525,31 +524,39 @@ pub(crate) async fn resolve_assigned_relay_skills(
         .iter()
         .map(|coordinate| parse_relay_skill_coordinate(coordinate))
         .collect::<Result<Vec<_>, _>>()?;
-    let authors = parsed
-        .iter()
-        .map(|coordinate| coordinate.publisher.to_hex())
-        .collect::<BTreeSet<_>>();
-    let slugs = parsed
-        .iter()
-        .map(|coordinate| coordinate.slug.clone())
-        .collect::<BTreeSet<_>>();
-    let filter = serde_json::json!({
-        "kinds": [RELAY_SKILL_KIND],
-        "authors": authors,
-        "#d": slugs,
-        "limit": requested.len(),
-    });
+    let filters = exact_coordinate_filters(&parsed);
 
     let session = relay_client.session(relay_url, keys).await;
-    let events = session
-        .fetch_events(filter, RELAY_SKILL_FETCH_TIMEOUT)
-        .await?;
+    let pages = futures_util::future::try_join_all(filters.into_iter().map(|filter| {
+        let session = &session;
+        async move {
+            session
+                .fetch_events(filter, RELAY_SKILL_FETCH_TIMEOUT)
+                .await
+        }
+    }))
+    .await?;
+    let events = pages.into_iter().flatten().collect();
     let heads = tauri::async_runtime::spawn_blocking(move || {
         resolved_heads_from_events(&requested, events)
     })
     .await
     .map_err(|error| format!("relay skill verification failed: {error}"))?;
     Ok(heads)
+}
+
+fn exact_coordinate_filters(coordinates: &[RelaySkillCoordinate]) -> Vec<serde_json::Value> {
+    coordinates
+        .iter()
+        .map(|coordinate| {
+            serde_json::json!({
+                "kinds": [RELAY_SKILL_KIND],
+                "authors": [coordinate.publisher.to_hex()],
+                "#d": [&coordinate.slug],
+                "limit": 1,
+            })
+        })
+        .collect()
 }
 
 fn resolved_heads_from_events(
@@ -751,6 +758,34 @@ mod tests {
 ",
         );
         assert_eq!(reasons[0].code, RelaySkillIncompatibilityCode::EmptyBody);
+    }
+
+    #[test]
+    fn exact_query_filters_do_not_admit_author_slug_cross_products() {
+        let alpha = Keys::generate();
+        let beta = Keys::generate();
+        let coordinates = [
+            format!("30023:{}:alpha", alpha.public_key().to_hex()),
+            format!("30023:{}:beta", beta.public_key().to_hex()),
+        ]
+        .iter()
+        .map(|value| parse_relay_skill_coordinate(value).unwrap())
+        .collect::<Vec<_>>();
+
+        let filters = exact_coordinate_filters(&coordinates);
+
+        assert_eq!(filters.len(), 2);
+        assert_eq!(
+            filters[0]["authors"],
+            serde_json::json!([alpha.public_key().to_hex()])
+        );
+        assert_eq!(filters[0]["#d"], serde_json::json!(["alpha"]));
+        assert_eq!(filters[0]["limit"], serde_json::json!(1));
+        assert_eq!(
+            filters[1]["authors"],
+            serde_json::json!([beta.public_key().to_hex()])
+        );
+        assert_eq!(filters[1]["#d"], serde_json::json!(["beta"]));
     }
 
     #[test]

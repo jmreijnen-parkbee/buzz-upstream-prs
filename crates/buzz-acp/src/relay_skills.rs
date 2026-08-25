@@ -1,6 +1,6 @@
-//! Progressive-disclosure metadata for owner-assigned relay skills.
+//! Progressive-disclosure metadata for owner-assigned shared instructions.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use nostr::{Event, Filter, Kind, PublicKey, SingleLetterTag};
 
@@ -46,23 +46,11 @@ pub(crate) async fn fetch_assigned_skill_covers(
     if coordinates.is_empty() {
         return Ok(None);
     }
-    let authors = coordinates
-        .iter()
-        .map(|coordinate| coordinate.publisher)
-        .collect::<HashSet<_>>();
-    let slugs = coordinates
-        .iter()
-        .map(|coordinate| coordinate.slug.clone())
-        .collect::<HashSet<_>>();
-    let filter = Filter::new()
-        .kind(Kind::Custom(SKILL_KIND))
-        .authors(authors)
-        .custom_tags(SingleLetterTag::lowercase(nostr::Alphabet::D), slugs)
-        .limit(coordinates.len());
+    let filters = exact_coordinate_filters(&coordinates);
     let value = rest
-        .query(&[filter])
+        .query(&filters)
         .await
-        .map_err(|error| format!("relay skill query failed: {error}"))?;
+        .map_err(|error| format!("shared instruction query failed: {error}"))?;
     let events = value
         .as_array()
         .ok_or_else(|| "relay skill query returned non-array".to_string())?
@@ -70,6 +58,20 @@ pub(crate) async fn fetch_assigned_skill_covers(
         .filter_map(|value| serde_json::from_value::<Event>(value.clone()).ok())
         .collect::<Vec<_>>();
     Ok(render_assigned_skill_covers(&coordinates, events))
+}
+
+fn exact_coordinate_filters(coordinates: &[Coordinate]) -> Vec<Filter> {
+    let d_tag = SingleLetterTag::lowercase(nostr::Alphabet::D);
+    coordinates
+        .iter()
+        .map(|coordinate| {
+            Filter::new()
+                .kind(Kind::Custom(SKILL_KIND))
+                .author(coordinate.publisher)
+                .custom_tags(d_tag, [coordinate.slug.as_str()])
+                .limit(1)
+        })
+        .collect()
 }
 
 fn render_assigned_skill_covers(coordinates: &[Coordinate], events: Vec<Event>) -> Option<String> {
@@ -151,6 +153,36 @@ fn clean_single_line(value: &str) -> String {
 mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Tag, Timestamp};
+
+    #[test]
+    fn exact_query_filters_do_not_admit_author_slug_cross_products() {
+        let alpha = Keys::generate();
+        let beta = Keys::generate();
+        let coordinate =
+            |keys: &Keys, slug: &str| format!("30023:{}:{slug}", keys.public_key().to_hex());
+        let coordinates = [coordinate(&alpha, "alpha"), coordinate(&beta, "beta")]
+            .iter()
+            .filter_map(|value| parse_coordinate(value))
+            .collect::<Vec<_>>();
+
+        let filters = exact_coordinate_filters(&coordinates)
+            .into_iter()
+            .map(|filter| serde_json::to_value(filter).unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(filters.len(), 2);
+        assert_eq!(
+            filters[0]["authors"],
+            serde_json::json!([alpha.public_key().to_hex()])
+        );
+        assert_eq!(filters[0]["#d"], serde_json::json!(["alpha"]));
+        assert_eq!(filters[0]["limit"], serde_json::json!(1));
+        assert_eq!(
+            filters[1]["authors"],
+            serde_json::json!([beta.public_key().to_hex()])
+        );
+        assert_eq!(filters[1]["#d"], serde_json::json!(["beta"]));
+    }
 
     #[test]
     fn renders_only_verified_exact_assigned_covers_in_assignment_order() {
