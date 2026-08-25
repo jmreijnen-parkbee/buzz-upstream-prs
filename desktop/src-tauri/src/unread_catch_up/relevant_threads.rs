@@ -5,7 +5,7 @@ use nostr::{Event, Keys};
 
 use super::{
     catch_up_kinds, fetch_filter_pages, AppState, CatchUpChannel, CHANNEL_FETCH_CONCURRENCY,
-    ROOT_FILTER_CHUNK,
+    HORIZON_SECONDS, ROOT_FILTER_CHUNK,
 };
 
 // Mirrors buzz-relay's aggregate explicit `#h` ceiling. Keep every HTTP
@@ -22,12 +22,16 @@ struct RelevantThreadQuery {
     filter: serde_json::Value,
 }
 
-fn relevant_thread_filter(channels: &[CatchUpChannel], roots: &[String]) -> serde_json::Value {
+fn relevant_thread_filter_at(
+    channels: &[CatchUpChannel],
+    roots: &[String],
+    now: u64,
+) -> serde_json::Value {
     let since = channels
         .iter()
-        .map(relevant_thread_since)
+        .map(|channel| relevant_thread_since_at(channel, now))
         .min()
-        .unwrap_or(0);
+        .unwrap_or_else(|| now.saturating_sub(HORIZON_SECONDS as u64));
     let channel_type = if channels.iter().any(|channel| channel.channel_type == "dm") {
         "dm"
     } else {
@@ -46,20 +50,36 @@ fn relevant_thread_filter(channels: &[CatchUpChannel], roots: &[String]) -> serd
     })
 }
 
-fn relevant_thread_since(channel: &CatchUpChannel) -> u64 {
-    channel.read_at.map_or(0, |value| value.saturating_add(1))
+fn relevant_thread_since_at(channel: &CatchUpChannel, now: u64) -> u64 {
+    let retention_cutoff = now.saturating_sub(HORIZON_SECONDS as u64);
+    channel
+        .read_at
+        .map_or(retention_cutoff, |value| value.saturating_add(1))
+        .max(retention_cutoff)
 }
 
 fn relevant_thread_queries(
     channels: &[CatchUpChannel],
     roots: &[String],
 ) -> Vec<RelevantThreadQuery> {
+    relevant_thread_queries_at(
+        channels,
+        roots,
+        chrono::Utc::now().timestamp().max(0) as u64,
+    )
+}
+
+fn relevant_thread_queries_at(
+    channels: &[CatchUpChannel],
+    roots: &[String],
+    now: u64,
+) -> Vec<RelevantThreadQuery> {
     let mut queries = Vec::new();
     for channel_chunk in channels.chunks(CHANNEL_FILTER_CHUNK) {
         for root_chunk in roots.chunks(ROOT_FILTER_CHUNK) {
             queries.push(RelevantThreadQuery {
                 channels: channel_chunk.to_vec(),
-                filter: relevant_thread_filter(channel_chunk, root_chunk),
+                filter: relevant_thread_filter_at(channel_chunk, root_chunk, now),
             });
         }
     }
@@ -163,13 +183,14 @@ mod tests {
 
     #[test]
     fn one_root_filter_covers_channels_with_the_same_frontier() {
+        let now = HORIZON_SECONDS as u64 + 1_000;
         let channels = vec![
-            channel("a", "stream", Some(10)),
-            channel("b", "dm", Some(10)),
+            channel("a", "stream", Some(now - 10)),
+            channel("b", "dm", Some(now - 10)),
         ];
-        let filter = relevant_thread_filter(&channels, &["root".into()]);
+        let filter = relevant_thread_filter_at(&channels, &["root".into()], now);
 
-        assert_eq!(filter["since"], 11);
+        assert_eq!(filter["since"], now - 9);
         assert_eq!(filter["#e"], serde_json::json!(["root"]));
         assert_eq!(filter["#h"], serde_json::json!(["a", "b"]));
         assert!(filter["kinds"].as_array().is_some_and(
@@ -178,16 +199,18 @@ mod tests {
     }
 
     #[test]
-    fn channel_chunk_uses_its_oldest_frontier_and_filters_later_per_channel() {
+    fn channel_chunk_clamps_its_oldest_frontier_to_retention() {
+        let now = HORIZON_SECONDS as u64 + 1_000;
+        let retention_cutoff = now - HORIZON_SECONDS as u64;
         let channels = vec![
             channel("old", "stream", None),
-            channel("current", "stream", Some(900)),
-            channel("same-current", "dm", Some(900)),
+            channel("current", "stream", Some(now - 100)),
+            channel("same-current", "dm", Some(now - 100)),
         ];
 
-        let queries = relevant_thread_queries(&channels, &["root".into()]);
+        let queries = relevant_thread_queries_at(&channels, &["root".into()], now);
         assert_eq!(queries.len(), 1);
-        assert_eq!(queries[0].filter["since"], 0);
+        assert_eq!(queries[0].filter["since"], retention_cutoff);
         assert_eq!(
             queries[0].filter["#h"],
             serde_json::json!(["old", "current", "same-current"])

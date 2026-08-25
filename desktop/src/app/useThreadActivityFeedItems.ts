@@ -1,7 +1,10 @@
 import * as React from "react";
 
 import type { ThreadActivityItem } from "@/features/channels/useUnreadChannels";
-import { getThreadReference } from "@/features/messages/lib/threading";
+import {
+  getThreadReference,
+  isBroadcastReply,
+} from "@/features/messages/lib/threading";
 import type { Channel, FeedItem } from "@/shared/api/types";
 
 export function buildThreadActivityFeedItems(
@@ -21,13 +24,14 @@ export function buildThreadActivityFeedItems(
       const channel = channelById.get(item.channelId);
       if (channel === undefined) return false;
       const rootId = getThreadReference(item.tags).rootId;
-      const overridesMute = item.tags.some(
-        (tag) =>
-          tag[0] === "broadcast" ||
-          (tag[0] === "p" &&
+      const overridesMute =
+        isBroadcastReply(item.tags) ||
+        item.tags.some(
+          (tag) =>
+            tag[0] === "p" &&
             currentPubkey !== undefined &&
-            tag[1]?.toLowerCase() === currentPubkey.toLowerCase()),
-      );
+            tag[1]?.toLowerCase() === currentPubkey.toLowerCase(),
+        );
       return !rootId || !mutedRootIds.has(rootId) || overridesMute;
     })
     .map((item) => {
