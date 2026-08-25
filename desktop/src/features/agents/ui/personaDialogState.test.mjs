@@ -79,6 +79,7 @@ test("duplicatePersonaDialogState copies persona fields into a new draft", () =>
     runtime: "provider-a",
     model: "model-a",
     provider: null,
+    assignedRelaySkills: [],
     isBuiltIn: false,
     isActive: true,
     createdAt: "2025-01-01T00:00:00Z",
@@ -93,6 +94,7 @@ test("duplicatePersonaDialogState copies persona fields into a new draft", () =>
     model: "model-a",
     provider: undefined,
     namePool: [],
+    assignedRelaySkills: [],
     envVars: {},
   });
 });
@@ -132,6 +134,7 @@ test("editPersonaDialogState preserves the persona id for updates", () => {
     runtime: null,
     model: null,
     provider: null,
+    assignedRelaySkills: [],
     isBuiltIn: true,
     isActive: true,
     createdAt: "2025-01-01T00:00:00Z",
@@ -150,6 +153,7 @@ test("editPersonaDialogState preserves the persona id for updates", () => {
     model: undefined,
     provider: undefined,
     namePool: [],
+    assignedRelaySkills: [],
     envVars: {},
   });
 });
@@ -322,5 +326,32 @@ test("a non-allowlist mode does not seed a stale allowlist into the dialog", () 
     state.initialValues.behavior.respondToAllowlist,
     undefined,
     "stale pubkeys must not resurrect through the dialog seed",
+  );
+});
+
+test("edit and duplicate preserve exact assigned relay-skill coordinates", () => {
+  const coordinate = `30023:${"a".repeat(64)}:design-review`;
+  const persona = {
+    id: "persona-skills",
+    displayName: "Reviewer",
+    avatarUrl: null,
+    systemPrompt: "Review interfaces.",
+    runtime: null,
+    model: null,
+    provider: null,
+    assignedRelaySkills: [coordinate],
+    isBuiltIn: false,
+    isActive: true,
+    createdAt: "2025-01-01T00:00:00Z",
+    updatedAt: "2025-01-02T00:00:00Z",
+  };
+
+  assert.deepEqual(
+    editPersonaDialogState(persona).initialValues.assignedRelaySkills,
+    [coordinate],
+  );
+  assert.deepEqual(
+    duplicatePersonaDialogState(persona).initialValues.assignedRelaySkills,
+    [coordinate],
   );
 });

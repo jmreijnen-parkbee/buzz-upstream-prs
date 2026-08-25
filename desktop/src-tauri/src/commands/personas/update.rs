@@ -9,7 +9,8 @@ use crate::{
     managed_agents::{
         apply_persona_behavior, effective_agent_command, load_managed_agents, load_personas,
         managed_agent_avatar_url, save_managed_agents, save_personas, try_regenerate_nest,
-        validate_agent_definition_text, AgentDefinition, ManagedAgentRecord, UpdatePersonaRequest,
+        validate_agent_definition_text, validate_assigned_relay_skills, AgentDefinition,
+        ManagedAgentRecord, UpdatePersonaRequest,
     },
     util::now_iso,
 };
@@ -125,6 +126,10 @@ pub(super) async fn update_persona_with<R: Send + 'static>(
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
+            if let Some(assigned_relay_skills) = input.assigned_relay_skills {
+                persona.assigned_relay_skills =
+                    validate_assigned_relay_skills(assigned_relay_skills)?;
+            }
             if let Some(env_vars) = input.env_vars {
                 crate::managed_agents::validate_user_env_keys(&env_vars)?;
                 persona.env_vars = env_vars;

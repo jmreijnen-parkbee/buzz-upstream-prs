@@ -120,6 +120,8 @@ pub struct AgentSnapshotDefinition {
     pub respond_to_allowlist: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub name_pool: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assigned_relay_skills: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_timeout_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -215,6 +217,7 @@ pub fn build_snapshot(
         respond_to: record.definition_respond_to.clone(),
         respond_to_allowlist: record.definition_respond_to_allowlist.clone(),
         name_pool: record.name_pool.clone(),
+        assigned_relay_skills: record.assigned_relay_skills.clone(),
         idle_timeout_seconds: record.idle_timeout_seconds,
         max_turn_duration_seconds: record.max_turn_duration_seconds,
     };
@@ -410,6 +413,8 @@ pub(crate) fn validate_snapshot(snapshot: &AgentSnapshot) -> Result<(), String> 
     if snapshot.profile.display_name.trim().is_empty() {
         return Err("Snapshot profile.displayName is empty".to_string());
     }
+    super::validate_assigned_relay_skills(snapshot.definition.assigned_relay_skills.clone())
+        .map_err(|error| format!("Snapshot relay-skill assignments are invalid: {error}"))?;
     super::validate_agent_definition_text(
         &snapshot.profile.display_name,
         snapshot

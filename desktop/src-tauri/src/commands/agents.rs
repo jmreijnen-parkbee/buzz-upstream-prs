@@ -713,6 +713,10 @@ pub async fn create_managed_agent(
             source_team: None,
             source_team_persona_slug: None,
             catalog_source: None,
+            assigned_relay_skills: linked_persona
+                .as_ref()
+                .map(|definition| definition.assigned_relay_skills.clone())
+                .unwrap_or_default(),
             definition_respond_to: None,
             definition_respond_to_allowlist: Vec::new(),
             definition_parallelism: None,

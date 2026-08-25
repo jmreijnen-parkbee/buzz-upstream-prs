@@ -715,6 +715,8 @@ export type AgentPersona = {
   /** LLM inference provider (e.g. "databricks", "anthropic"). Injected as the runtime's provider env var at spawn time. */
   provider: string | null;
   namePool: string[];
+  /** Exact author-pinned NIP-23 coordinates assigned to this definition. */
+  assignedRelaySkills: string[];
   isBuiltIn: boolean;
   isActive: boolean;
   /** Whether this persona is discoverable in the active community catalog. */
@@ -765,6 +767,7 @@ export type CreatePersonaInput = {
   model?: string;
   provider?: string;
   namePool?: string[];
+  assignedRelaySkills?: string[];
   envVars?: Record<string, string>;
   behavior?: PersonaBehaviorInput;
   /**
@@ -783,6 +786,8 @@ export type UpdatePersonaInput = {
   model?: string;
   provider?: string;
   namePool?: string[];
+  /** Absent = don't touch. Present = replace all assignments. */
+  assignedRelaySkills?: string[];
   envVars?: Record<string, string>;
   behavior?: PersonaBehaviorInput;
 };

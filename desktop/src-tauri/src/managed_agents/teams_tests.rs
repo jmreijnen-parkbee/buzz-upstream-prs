@@ -213,6 +213,7 @@ fn managed_agent(name: &str) -> ManagedAgentRecord {
         source_team: None,
         source_team_persona_slug: None,
         catalog_source: None,
+        assigned_relay_skills: Vec::new(),
         relay_mesh: None,
         effort_level: None,
         definition_respond_to: None,

@@ -55,6 +55,7 @@ fn agent(persona_id: &str, name: &str, display_name: Option<&str>) -> ManagedAge
         source_team: None,
         source_team_persona_slug: None,
         catalog_source: None,
+        assigned_relay_skills: Vec::new(),
         definition_respond_to: None,
         definition_respond_to_allowlist: vec![],
         definition_parallelism: None,

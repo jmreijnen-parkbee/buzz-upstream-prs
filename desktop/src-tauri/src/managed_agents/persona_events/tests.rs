@@ -55,6 +55,7 @@ pub(super) fn sample_record() -> ManagedAgentRecord {
         source_team: None,
         source_team_persona_slug: None,
         catalog_source: None,
+        assigned_relay_skills: Vec::new(),
         definition_respond_to: None,
         definition_respond_to_allowlist: Vec::new(),
         definition_parallelism: None,
@@ -157,6 +158,7 @@ pub(super) fn sample_persona() -> AgentDefinition {
         source_team: None,
         source_team_persona_slug: Some("test-slug".to_string()),
         catalog_source: None,
+        assigned_relay_skills: Vec::new(),
         env_vars: BTreeMap::from([("KEY".to_string(), "value".to_string())]),
         respond_to: None,
         respond_to_allowlist: Vec::new(),
@@ -241,9 +243,9 @@ fn d_tag_already_valid_slug_is_unchanged() {
     // through untouched (no spurious coordinate change on existing data).
     let mut record = sample_persona();
     record.source_team_persona_slug = None;
-    record.id = "11111111-2222-3333-4444-555555555555".to_string();
+    record.id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string();
     let d = persona_d_tag(&record);
-    assert_eq!(d, "11111111-2222-3333-4444-555555555555");
+    assert_eq!(d, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
     assert!(passes_relay_slug_grammar(&d));
 }
 
@@ -323,6 +325,7 @@ fn content_matches_nip_ap_vector() {
         runtime: Some("goose".to_string()),
         model: Some("claude-opus-4".to_string()),
         provider: Some("anthropic".to_string()),
+        assigned_relay_skills: Vec::new(),
         name_pool: vec!["Alpha".to_string(), "Beta".to_string()],
         respond_to: None,
         respond_to_allowlist: Vec::new(),
@@ -384,6 +387,7 @@ fn content_matches_nip_ap_vector() {
         source_team: None,
         source_team_persona_slug: None,
         catalog_source: None,
+        assigned_relay_skills: Vec::new(),
         env_vars: BTreeMap::new(),
         respond_to: None,
         respond_to_allowlist: Vec::new(),
@@ -396,6 +400,24 @@ fn content_matches_nip_ap_vector() {
         .sign_with_keys(&nostr::Keys::generate())
         .unwrap();
     assert_eq!(event.content, VECTOR);
+}
+
+#[test]
+fn assigned_relay_skills_round_trip_without_affecting_legacy_vector() {
+    let key = "a".repeat(64);
+    let coordinate = format!("30023:{key}:design-engineering");
+    let mut record = sample_persona();
+    record.assigned_relay_skills = vec![coordinate.clone()];
+
+    let event = build_persona_event(&record)
+        .unwrap()
+        .sign_with_keys(&nostr::Keys::generate())
+        .unwrap();
+    let content: PersonaEventContent = serde_json::from_str(&event.content).unwrap();
+    assert_eq!(content.assigned_relay_skills, vec![coordinate.clone()]);
+
+    let restored = persona_from_event(&event).unwrap();
+    assert_eq!(restored.assigned_relay_skills, vec![coordinate]);
 }
 
 #[test]
@@ -415,6 +437,7 @@ fn round_trip_minimal_persona() {
         source_team: Some("team-1".to_string()),
         source_team_persona_slug: None,
         catalog_source: None,
+        assigned_relay_skills: Vec::new(),
         env_vars: BTreeMap::new(),
         respond_to: None,
         respond_to_allowlist: Vec::new(),
@@ -512,6 +535,7 @@ fn quad_absent_definition_hash_stable_across_activation() {
         source_team: None,
         source_team_persona_slug: None,
         catalog_source: None,
+        assigned_relay_skills: Vec::new(),
         env_vars: BTreeMap::new(),
         respond_to: None,
         respond_to_allowlist: Vec::new(),
@@ -556,6 +580,7 @@ fn persona_from_event_content_for_test(content: PersonaEventContent) -> AgentDef
         source_team: None,
         source_team_persona_slug: None,
         catalog_source: None,
+        assigned_relay_skills: content.assigned_relay_skills,
         env_vars: BTreeMap::new(),
         respond_to: content.respond_to,
         respond_to_allowlist: content.respond_to_allowlist,
@@ -574,6 +599,7 @@ fn persona_content_hash_is_deterministic() {
         runtime: None,
         model: None,
         provider: None,
+        assigned_relay_skills: Vec::new(),
         name_pool: vec![],
         respond_to: None,
         respond_to_allowlist: Vec::new(),
@@ -594,6 +620,7 @@ fn persona_content_hash_changes_on_edit() {
         runtime: None,
         model: None,
         provider: None,
+        assigned_relay_skills: Vec::new(),
         name_pool: vec![],
         respond_to: None,
         respond_to_allowlist: Vec::new(),

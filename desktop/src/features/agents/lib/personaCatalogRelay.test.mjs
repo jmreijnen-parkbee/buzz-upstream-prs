@@ -20,6 +20,7 @@ function publication(overrides = {}) {
       model: null,
       provider: null,
       namePool: [],
+      assignedRelaySkills: [],
       respondTo: null,
       parallelism: null,
     },
@@ -37,6 +38,7 @@ test("a pending local share does not appear before relay confirmation", () => {
     model: null,
     provider: null,
     namePool: [],
+    assignedRelaySkills: [],
     isBuiltIn: false,
     isActive: true,
     shared: true,
@@ -63,6 +65,7 @@ function localPersona(overrides = {}) {
     model: null,
     provider: null,
     namePool: [],
+    assignedRelaySkills: [],
     isBuiltIn: false,
     isActive: true,
     shared: false,
@@ -156,4 +159,14 @@ test("test_own_publication_still_resolves_by_local_id", () => {
 
   assert.equal(personas[0].id, "reviewer");
   assert.equal(personas[0].catalogSource.isOwn, true);
+});
+
+test("catalog projection preserves publisher-assigned exact skill coordinates", () => {
+  const coordinate = `30023:${BOB}:review`;
+  const published = publication({
+    agent: { ...publication().agent, assignedRelaySkills: [coordinate] },
+  });
+
+  const [persona] = catalogPersonasFromPublications([published], [], BOB);
+  assert.deepEqual(persona.assignedRelaySkills, [coordinate]);
 });

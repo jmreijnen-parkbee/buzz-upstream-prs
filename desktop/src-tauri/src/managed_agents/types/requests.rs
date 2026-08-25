@@ -95,6 +95,9 @@ pub struct CreatePersonaRequest {
     /// so the catalog can tell an already-added foreign persona from a new one.
     #[serde(default)]
     pub catalog_source: Option<CatalogSource>,
+    /// Exact NIP-23 coordinates selected for this definition.
+    #[serde(default)]
+    pub assigned_relay_skills: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,6 +128,9 @@ pub struct UpdatePersonaRequest {
     /// present = validate and replace the fields as a unit.
     #[serde(default)]
     pub behavior: Option<PersonaBehaviorRequest>,
+    /// Absent = don't touch; present = validate and replace the assignment set.
+    #[serde(default)]
+    pub assigned_relay_skills: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -283,6 +289,7 @@ mod tests {
             source_team: None,
             source_team_persona_slug: None,
             catalog_source: None,
+            assigned_relay_skills: Vec::new(),
             env_vars: BTreeMap::new(),
             respond_to: None,
             respond_to_allowlist: Vec::new(),

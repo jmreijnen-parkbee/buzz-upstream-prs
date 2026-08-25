@@ -484,6 +484,11 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_ACP_TEAM_INSTRUCTIONS")]
     pub team_instructions: Option<String>,
 
+    /// Exact kind-30023 coordinates assigned by the owner. Metadata is fetched
+    /// at startup and exposed as compact skill covers; bodies remain lazy.
+    #[arg(long, env = "BUZZ_ACP_ASSIGNED_RELAY_SKILLS", value_delimiter = ',')]
+    pub assigned_relay_skills: Option<Vec<String>>,
+
     /// Publish encrypted ACP observer frames over the relay.
     #[arg(long, env = "BUZZ_ACP_RELAY_OBSERVER", default_value_t = false)]
     pub relay_observer: bool,
@@ -533,6 +538,8 @@ pub struct Config {
     pub system_prompt: Option<String>,
     /// Team-owned instructions layered separately from the agent system prompt.
     pub team_instructions: Option<String>,
+    /// Owner-assigned exact kind-30023 coordinates used to build skill covers.
+    pub assigned_relay_skills: Vec<String>,
     pub initial_message: Option<String>,
     pub subscribe_mode: SubscribeMode,
     pub dedup_mode: DedupMode,
@@ -1110,6 +1117,7 @@ impl Config {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
+            assigned_relay_skills: args.assigned_relay_skills.unwrap_or_default(),
             initial_message: args.initial_message,
             subscribe_mode: args.subscribe,
             dedup_mode: args.dedup,
@@ -1486,6 +1494,7 @@ mod tests {
             heartbeat_prompt: None,
             system_prompt: None,
             team_instructions: None,
+            assigned_relay_skills: Vec::new(),
             initial_message: None,
             subscribe_mode: mode,
             dedup_mode: DedupMode::Queue,

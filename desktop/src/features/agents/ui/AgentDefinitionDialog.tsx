@@ -8,8 +8,10 @@ import type {
   UpdatePersonaInput,
 } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { useFeatureEnabled } from "@/shared/features/useFeatureEnabled";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
+import { RelaySkillPicker } from "./RelaySkillPicker";
 import { AgentCreationPreview } from "./AgentCreationPreview";
 import { PersonaDropdownField } from "./PersonaDropdownField";
 import type { EnvVarsValue } from "./EnvVarsEditor";
@@ -137,12 +139,16 @@ export function AgentDefinitionDialog({
   createRunSection,
   createSubmitBlocked = false,
 }: AgentDefinitionDialogProps) {
+  const sharedInstructionsEnabled = useFeatureEnabled("sharedInstructions");
   const runtimesLoading = runtimeCatalogStatus === "loading";
   const [displayName, setDisplayName] = React.useState("");
   const [aiDefaultsOpen, setAiDefaultsOpen] = React.useState(false);
   const aiDefaultsTriggerRef = React.useRef<HTMLButtonElement>(null);
   const [avatarUrl, setAvatarUrl] = React.useState("");
   const [systemPrompt, setSystemPrompt] = React.useState("");
+  const [assignedRelaySkills, setAssignedRelaySkills] = React.useState<
+    string[]
+  >([]);
   const [runtime, setRuntime] = React.useState("");
   const [model, setModel] = React.useState("");
   const [isCustomModelEditing, setIsCustomModelEditing] = React.useState(false);
@@ -207,6 +213,7 @@ export function AgentDefinitionDialog({
     setDisplayName(initialValues.displayName);
     setAvatarUrl(initialValues.avatarUrl ?? "");
     setSystemPrompt(initialValues.systemPrompt);
+    setAssignedRelaySkills(initialValues.assignedRelaySkills ?? []);
     setRuntime(initialValues.runtime ?? "");
     setModel(initialValues.model ?? "");
     setIsCustomModelEditing(false);
@@ -307,6 +314,7 @@ export function AgentDefinitionDialog({
       setDisplayName("");
       setAvatarUrl("");
       setSystemPrompt("");
+      setAssignedRelaySkills([]);
       setRuntime("");
       setModel("");
       setIsCustomModelEditing(false);
@@ -363,6 +371,7 @@ export function AgentDefinitionDialog({
       model: modelForSubmit,
       provider: providerForSubmit,
       namePool: namePoolInput,
+      assignedRelaySkills,
       envVars,
       behavior: behaviorForSubmit(
         behaviorDraft,
@@ -788,25 +797,52 @@ export function AgentDefinitionDialog({
         </div>
 
         <div className="space-y-1.5">
-          <label
-            className="text-sm font-medium text-foreground"
-            htmlFor="persona-system-prompt"
-          >
-            Agent instructions
-          </label>
-          <div className={PERSONA_FIELD_SHELL_CLASS}>
-            <Textarea
-              className={cn(
-                "min-h-40 resize-y px-3 py-3 leading-5",
-                PERSONA_FIELD_CONTROL_CLASS,
-              )}
+          {sharedInstructionsEnabled ? (
+            <RelaySkillPicker
               disabled={isPending}
-              id="persona-system-prompt"
-              onChange={(event) => setSystemPrompt(event.target.value)}
-              placeholder="Describe what this agent should do."
-              value={systemPrompt}
-            />
-          </div>
+              label="Agent instructions"
+              labelFor="persona-system-prompt"
+              onChange={(coordinates) => {
+                setAssignedRelaySkills(coordinates);
+                setHasUserChanges(true);
+              }}
+              selected={assignedRelaySkills}
+            >
+              <Textarea
+                className={cn(
+                  "h-full min-h-28 resize-none px-3 py-3 leading-5",
+                  PERSONA_FIELD_CONTROL_CLASS,
+                )}
+                disabled={isPending}
+                id="persona-system-prompt"
+                onChange={(event) => setSystemPrompt(event.target.value)}
+                placeholder="Describe what this agent should do."
+                value={systemPrompt}
+              />
+            </RelaySkillPicker>
+          ) : (
+            <>
+              <label
+                className="text-sm font-medium text-foreground"
+                htmlFor="persona-system-prompt"
+              >
+                Agent instructions
+              </label>
+              <div className={PERSONA_FIELD_SHELL_CLASS}>
+                <Textarea
+                  className={cn(
+                    "min-h-40 resize-y px-3 py-3 leading-5",
+                    PERSONA_FIELD_CONTROL_CLASS,
+                  )}
+                  disabled={isPending}
+                  id="persona-system-prompt"
+                  onChange={(event) => setSystemPrompt(event.target.value)}
+                  placeholder="Describe what this agent should do."
+                  value={systemPrompt}
+                />
+              </div>
+            </>
+          )}
         </div>
 
         {modelFieldVisible ? (

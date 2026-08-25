@@ -66,6 +66,10 @@ import type {
   RawConnectAcpRuntimeResult,
 } from "@/shared/api/tauriAgentAuth";
 import type {
+  RelaySkillCover,
+  ResolvedRelaySkill,
+} from "@/shared/api/tauriPersonas";
+import type {
   RawAcpRuntimeCatalogEntry,
   RawInstallRuntimeResult,
   RuntimeFileConfigSubset,
@@ -147,6 +151,7 @@ type MockPersonaSeed = {
   model?: string | null;
   provider?: string | null;
   namePool?: string[];
+  assignedRelaySkills?: string[];
   respondTo?: "owner-only" | "allowlist" | "anyone";
   respondToAllowlist?: string[];
 };
@@ -309,6 +314,10 @@ type E2eConfig = {
      *  (`list/start/stop/restart_managed_agent_runtime`). */
     managedAgentRuntimes?: MockManagedAgentRuntimeSeed[];
     personas?: MockPersonaSeed[];
+    /** Reusable relay instructions returned to agent create/edit surfaces. */
+    relaySkills?: RelaySkillCover[];
+    /** Full relay instructions returned when a reusable instruction is previewed. */
+    relaySkillDetails?: ResolvedRelaySkill[];
     /** Community catalog replaceable-event heads returned by relay queries. */
     personaCatalogEvents?: RelayEvent[];
     /** Outcomes for successive explicit persona share publications. */
@@ -982,6 +991,7 @@ type RawPersona = {
   model?: string | null;
   provider?: string | null;
   name_pool?: string[];
+  assigned_relay_skills?: string[];
   is_builtin: boolean;
   is_active: boolean;
   shared: boolean;
@@ -2483,6 +2493,7 @@ function resetMockPersonas(config?: E2eConfig) {
       model: persona.model ?? null,
       provider: persona.provider ?? null,
       name_pool: persona.namePool ?? [],
+      assigned_relay_skills: [...(persona.assignedRelaySkills ?? [])],
       respond_to: persona.respondTo ?? null,
       respond_to_allowlist:
         persona.respondTo === "allowlist"
@@ -3343,6 +3354,11 @@ function mockPersonaCatalogPublications() {
         runtime: optionalString(content.runtime),
         model: optionalString(content.model),
         provider: optionalString(content.provider),
+        assignedRelaySkills: Array.isArray(content.assigned_relay_skills)
+          ? content.assigned_relay_skills.filter(
+              (value): value is string => typeof value === "string",
+            )
+          : [],
         namePool: Array.isArray(content.name_pool)
           ? content.name_pool.filter(
               (value): value is string => typeof value === "string",
@@ -8481,6 +8497,7 @@ async function handleCreatePersona(args: {
     runtime?: string;
     model?: string;
     provider?: string;
+    assignedRelaySkills?: string[];
     envVars?: Record<string, string>;
     behavior?: PersonaBehaviorInput;
     catalogSource?: { ownerPubkey: string; personaId: string };
@@ -8495,6 +8512,7 @@ async function handleCreatePersona(args: {
     runtime: args.input.runtime?.trim() || null,
     model: args.input.model?.trim() || null,
     provider: args.input.provider?.trim() || null,
+    assigned_relay_skills: [...(args.input.assignedRelaySkills ?? [])],
     is_builtin: false,
     is_active: true,
     shared: false,
@@ -8527,6 +8545,7 @@ type MockUpdatePersonaInput = {
   runtime?: string;
   model?: string;
   provider?: string;
+  assignedRelaySkills?: string[];
   envVars?: Record<string, string>;
   behavior?: PersonaBehaviorInput;
 };
@@ -8560,6 +8579,9 @@ async function applyMockPersonaUpdate(
   persona.runtime = input.runtime?.trim() || null;
   persona.model = input.model?.trim() || null;
   persona.provider = input.provider?.trim() || null;
+  if (input.assignedRelaySkills !== undefined) {
+    persona.assigned_relay_skills = [...input.assignedRelaySkills];
+  }
   if (input.envVars !== undefined) {
     // Absent = preserve; present = replace entirely (matches Rust handler).
     persona.env_vars = { ...input.envVars };
@@ -13964,6 +13986,87 @@ export function maybeInstallE2eTauriMocks() {
         window.localStorage.removeItem(key);
         return null;
       }
+      case "list_my_relay_skills":
+        return getConfig()?.mock?.relaySkills ?? [];
+      case "create_relay_skill": {
+        const input = (
+          payload as {
+            input: {
+              name: string;
+              title: string;
+              summary: string;
+              instructions: string;
+            };
+          }
+        ).input;
+        return {
+          coordinate: `30023:${getMockMemberPubkey(config)}:${input.name}`,
+          publisher: getMockMemberPubkey(config),
+          slug: input.name,
+          title: input.title,
+          summary: input.summary,
+          eventId: "cd".repeat(32),
+          updatedAt: 1_700_000_000,
+          compatible: true,
+          incompatibilities: [],
+        };
+      }
+
+      case "update_relay_skill": {
+        const input = (
+          payload as {
+            input: {
+              coordinate: string;
+              expectedEventId: string;
+              title: string;
+              summary: string;
+              instructions: string;
+            };
+          }
+        ).input;
+        const [, publisher = "", slug = ""] = input.coordinate.split(":", 3);
+        return {
+          coordinate: input.coordinate,
+          publisher,
+          slug,
+          title: input.title,
+          summary: input.summary,
+          eventId: "de".repeat(32),
+          updatedAt: 1_700_000_001,
+          compatible: true,
+          incompatibilities: [],
+        };
+      }
+
+      case "resolve_relay_skills": {
+        const coordinates =
+          (payload as { coordinates?: string[] }).coordinates ?? [];
+        return coordinates.map((coordinate) => {
+          const configured = getConfig()?.mock?.relaySkillDetails?.find(
+            (detail) => detail.coordinate === coordinate,
+          );
+          if (configured) return configured;
+
+          const [, publisher = "", slug = ""] = coordinate.split(":", 3);
+          return {
+            coordinate,
+            publisher,
+            slug,
+            title: slug
+              .split("-")
+              .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+              .join(" "),
+            summary: "Shared expertise from this exact signed publisher.",
+            content: "# Skill\n\nMock relay skill content.",
+            eventId: "ab".repeat(32),
+            updatedAt: 1_700_000_000,
+            editable:
+              publisher.toLowerCase() ===
+              getMockMemberPubkey(config).toLowerCase(),
+          };
+        });
+      }
+
       case "observed_unread_open_scope": {
         const request = payload as {
           request: {

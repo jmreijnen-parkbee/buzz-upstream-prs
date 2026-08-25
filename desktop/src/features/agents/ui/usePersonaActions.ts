@@ -325,6 +325,7 @@ export function usePersonaActions() {
             model: persona.model ?? undefined,
             provider: persona.provider ?? undefined,
             namePool: persona.namePool,
+            assignedRelaySkills: persona.assignedRelaySkills,
             behavior: {
               respondTo:
                 persona.respondTo === "anyone" ? "anyone" : "owner-only",

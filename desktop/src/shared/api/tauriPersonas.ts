@@ -15,6 +15,7 @@ export type RawPersona = {
   model?: string | null;
   provider?: string | null;
   name_pool?: string[];
+  assigned_relay_skills?: string[];
   is_builtin: boolean;
   is_active?: boolean;
   shared?: boolean;
@@ -45,6 +46,7 @@ export function fromRawPersona(persona: RawPersona): AgentPersona {
     model: persona.model ?? null,
     provider: persona.provider ?? null,
     namePool: persona.name_pool ?? [],
+    assignedRelaySkills: persona.assigned_relay_skills ?? [],
     isBuiltIn: persona.is_builtin,
     isActive: persona.is_active ?? true,
     shared: persona.shared ?? false,
@@ -64,6 +66,81 @@ export function fromRawPersona(persona: RawPersona): AgentPersona {
   };
 }
 
+export type RelaySkillIncompatibilityCode =
+  | "invalidName"
+  | "missingDescription"
+  | "descriptionTooLong"
+  | "emptyBody"
+  | "bodyTooLarge";
+
+export type RelaySkillIncompatibility = {
+  code: RelaySkillIncompatibilityCode;
+  message: string;
+};
+
+export type RelaySkillCover = {
+  coordinate: string;
+  publisher: string;
+  slug: string;
+  title: string;
+  summary: string | null;
+  eventId: string;
+  updatedAt: number;
+  compatible: boolean;
+  incompatibilities: RelaySkillIncompatibility[];
+};
+
+export function listMyRelaySkills(): Promise<RelaySkillCover[]> {
+  return invokeTauri<RelaySkillCover[]>("list_my_relay_skills");
+}
+
+export type CreateRelaySkillInput = {
+  name: string;
+  title: string;
+  summary: string;
+  instructions: string;
+};
+
+export function createRelaySkill(
+  input: CreateRelaySkillInput,
+): Promise<RelaySkillCover> {
+  return invokeTauri<RelaySkillCover>("create_relay_skill", { input });
+}
+
+export type UpdateRelaySkillInput = {
+  coordinate: string;
+  expectedEventId: string;
+  title: string;
+  summary: string;
+  instructions: string;
+};
+
+export function updateRelaySkill(
+  input: UpdateRelaySkillInput,
+): Promise<RelaySkillCover> {
+  return invokeTauri<RelaySkillCover>("update_relay_skill", { input });
+}
+
+export type ResolvedRelaySkill = {
+  coordinate: string;
+  publisher: string;
+  slug: string;
+  title: string;
+  summary: string | null;
+  content: string;
+  eventId: string;
+  updatedAt: number;
+  editable: boolean;
+};
+
+export function resolveRelaySkills(
+  coordinates: readonly string[],
+): Promise<ResolvedRelaySkill[]> {
+  return invokeTauri<ResolvedRelaySkill[]>("resolve_relay_skills", {
+    coordinates,
+  });
+}
+
 export async function listPersonas(): Promise<AgentPersona[]> {
   return (await invokeTauri<RawPersona[]>("list_personas")).map(fromRawPersona);
 }
@@ -81,6 +158,7 @@ export async function createPersona(
         model: input.model,
         provider: input.provider,
         namePool: input.namePool ?? [],
+        assignedRelaySkills: input.assignedRelaySkills ?? [],
         envVars: input.envVars ?? {},
         behavior: input.behavior,
         catalogSource: input.catalogSource,
@@ -100,6 +178,8 @@ function updatePersonaPayload(input: UpdatePersonaInput) {
     model: input.model,
     provider: input.provider,
     namePool: input.namePool ?? [],
+    // Omit on legacy callers so unrelated edits preserve assignments.
+    assignedRelaySkills: input.assignedRelaySkills,
     // Send envVars only when caller explicitly provided it; omitting
     // tells the backend "don't touch the stored env vars" so editing
     // unrelated fields can't silently wipe saved credentials.

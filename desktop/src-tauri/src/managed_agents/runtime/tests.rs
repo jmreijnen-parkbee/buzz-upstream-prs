@@ -287,6 +287,7 @@ fn persona_with_provider(
         source_team: None,
         source_team_persona_slug: None,
         catalog_source: None,
+        assigned_relay_skills: Vec::new(),
         env_vars: std::collections::BTreeMap::new(),
         respond_to: None,
         respond_to_allowlist: Vec::new(),

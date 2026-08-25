@@ -307,6 +307,7 @@ mod tests {
             source_team_persona_slug: Some("SENTINEL_SLUG".to_string()), // MUST NOT appear
             definition_respond_to: None,
             catalog_source: None,
+            assigned_relay_skills: Vec::new(),
             definition_respond_to_allowlist: vec![],
             definition_parallelism: None,
             relay_mesh: None,

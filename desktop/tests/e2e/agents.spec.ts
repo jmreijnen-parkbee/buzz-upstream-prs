@@ -8,6 +8,7 @@ import { emojiAvatarDataUrl } from "@/features/profile/ui/ProfileAvatarEditor.ut
 
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
+import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 import { seedActiveIdentity } from "../helpers/onboarding";
 
 function createCatalogEvent(input: {
@@ -501,6 +502,600 @@ test("embedded create keeps its draft when discard is cancelled", async ({
   await expect(instructions).toHaveValue(
     "Preserve this draft through confirmation.",
   );
+});
+
+test("shared instructions are hidden when the experiment is disabled", async ({
+  page,
+}) => {
+  await page.addInitScript((key) => {
+    const overrides = JSON.parse(
+      window.localStorage.getItem(key) ?? "{}",
+    ) as Record<string, boolean>;
+    overrides.sharedInstructions = false;
+    window.localStorage.setItem(key, JSON.stringify(overrides));
+  }, FEATURE_OVERRIDES_STORAGE_KEY);
+
+  await gotoApp(page);
+  await page.getByTestId("open-agents-view").click();
+  await page.getByTestId("new-agent-card").click();
+
+  const personaDialog = page.getByTestId("persona-dialog");
+  await expect(
+    personaDialog.getByRole("button", { name: /shared instruction/i }),
+  ).toHaveCount(0);
+  const instructions = personaDialog.locator("#persona-system-prompt");
+  await expect(instructions).toBeVisible();
+  await expect(instructions).toHaveCSS("resize", "vertical");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as Window & {
+              __BUZZ_E2E_COMMAND_LOG__?: Array<{ command: string }>;
+            }
+          ).__BUZZ_E2E_COMMAND_LOG__?.some(
+            ({ command }) => command === "list_my_relay_skills",
+          ) ?? false,
+      ),
+    )
+    .toBe(false);
+});
+
+test("shared instruction creation stays compact and derives safe names", async ({
+  page,
+}) => {
+  await gotoApp(page);
+  await page.getByTestId("open-agents-view").click();
+  await page.getByTestId("new-agent-card").click();
+
+  const personaDialog = page.getByTestId("persona-dialog");
+  await personaDialog
+    .getByRole("button", { name: "Create shared instruction" })
+    .click();
+
+  const createDialog = page.getByRole("dialog", {
+    name: "Create shared instruction",
+  });
+  await expect(createDialog).toBeVisible();
+  await expect(createDialog.locator("#relay-skill-name")).toHaveCount(0);
+  await expect(createDialog.locator("#relay-skill-title")).toHaveAttribute(
+    "placeholder",
+    "Engineering discipline",
+  );
+  await expect(createDialog.locator("#relay-skill-summary")).toHaveAttribute(
+    "placeholder",
+    "Raises implementation quality through validation, self-review, boundary checks, coverage, and second opinions. Use when coding, refactoring, reviewing changes, testing, or preparing work for completion.",
+  );
+  await expect(
+    createDialog.locator("#relay-skill-instructions"),
+  ).toHaveAttribute("placeholder", /Target a 9\/10 or better standard/);
+  await expect
+    .poll(() =>
+      createDialog.evaluate((element) => getComputedStyle(element).overflowY),
+    )
+    .toBe("auto");
+  await expect
+    .poll(() =>
+      createDialog
+        .locator("form")
+        .evaluate((element) => getComputedStyle(element).overflowY),
+    )
+    .toBe("visible");
+
+  await createDialog
+    .locator("#relay-skill-title")
+    .fill("Engineering discipline");
+  await createDialog
+    .locator("#relay-skill-summary")
+    .fill("Use when coding, refactoring, reviewing changes, or testing.");
+  await createDialog
+    .locator("#relay-skill-instructions")
+    .fill("Validate work in the shape the task demands.");
+
+  await createDialog.getByRole("button", { name: "Create and add" }).click();
+  await expect(createDialog).toBeHidden();
+  await expect(
+    personaDialog.getByRole("button", {
+      name: "Engineering discipline",
+      exact: true,
+    }),
+  ).toBeVisible();
+  const firstInput = await page.evaluate(() => {
+    const call = [...(window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [])]
+      .reverse()
+      .find((candidate) => candidate.command === "create_relay_skill");
+    return (call?.payload as { input?: { name?: string } } | undefined)?.input;
+  });
+  expect(firstInput?.name).toBe("engineering-discipline");
+
+  await personaDialog
+    .getByRole("button", { name: "Add shared instructions" })
+    .click();
+  await page.getByRole("menuitem", { name: "Create new" }).click();
+  await createDialog.locator("#relay-skill-title").fill("設計レビュー");
+  await createDialog
+    .locator("#relay-skill-summary")
+    .fill("Use when reviewing product interfaces and design implementation.");
+  await createDialog
+    .locator("#relay-skill-instructions")
+    .fill("Review the implementation carefully before completion.");
+  await createDialog.getByRole("button", { name: "Create and add" }).click();
+  await expect(
+    personaDialog.getByRole("button", {
+      name: "設計レビュー",
+      exact: true,
+    }),
+  ).toBeVisible();
+  const unicodeInput = await page.evaluate(() => {
+    const call = [...(window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [])]
+      .reverse()
+      .find((candidate) => candidate.command === "create_relay_skill");
+    return (call?.payload as { input?: { name?: string } } | undefined)?.input;
+  });
+  expect(unicodeInput?.name).toBe("instruction-1xvscj8");
+});
+
+test("shared instructions use a compact multi-select dropdown", async ({
+  page,
+}) => {
+  const owner = TEST_IDENTITIES.tyler.pubkey;
+  const designCoordinate = `30023:${owner}:design-engineering`;
+  const longInstruction = Array.from(
+    { length: 80 },
+    (_, index) => `Instruction line ${index + 1}`,
+  ).join("\n");
+  await installMockBridge(page, {
+    relaySkills: [
+      {
+        coordinate: designCoordinate,
+        publisher: owner,
+        slug: "design-engineering",
+        title: "Design engineering",
+        summary: "Use when making decisions around interfaces and design.",
+        eventId: "a1".repeat(32),
+        updatedAt: 1_700_000_000,
+        compatible: true,
+        incompatibilities: [],
+      },
+      {
+        coordinate: `30023:${owner}:engineering-discipline`,
+        publisher: owner,
+        slug: "engineering-discipline",
+        title: "Engineering discipline",
+        summary: "Use when implementing code.",
+        eventId: "b2".repeat(32),
+        updatedAt: 1_700_000_001,
+        compatible: true,
+        incompatibilities: [],
+      },
+    ],
+    relaySkillDetails: [
+      {
+        coordinate: designCoordinate,
+        publisher: owner,
+        slug: "design-engineering",
+        title: "Design engineering",
+        summary: "Use when making decisions around interfaces and design.",
+        content: longInstruction,
+        eventId: "a1".repeat(32),
+        updatedAt: 1_700_000_000,
+        editable: true,
+      },
+    ],
+  });
+  await gotoApp(page);
+  await page.getByTestId("open-agents-view").click();
+  await page.getByTestId("new-agent-card").click();
+
+  const dialog = page.getByTestId("persona-dialog");
+  const skillField = dialog.getByTestId("relay-skill-picker-field");
+  const instructions = dialog.locator("#persona-system-prompt");
+  const emptyFieldHeight = await skillField.evaluate(
+    (element) => element.clientHeight,
+  );
+  const emptyBottomPadding = await instructions.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).paddingBottom),
+  );
+  await expect
+    .poll(() => instructions.evaluate((element) => element.clientHeight))
+    .toBe(emptyFieldHeight);
+  await expect(
+    page.getByRole("dialog", { name: "Shared instructions" }),
+  ).toHaveCount(0);
+
+  const instructionsLabel = dialog.locator(
+    'label[for="persona-system-prompt"]',
+  );
+  const pickerIngress = dialog.getByRole("button", {
+    name: "Add shared instructions",
+  });
+  await expect(pickerIngress).toBeVisible();
+  const [labelBox, ingressBox, fieldBox] = await Promise.all([
+    instructionsLabel.boundingBox(),
+    pickerIngress.boundingBox(),
+    skillField.boundingBox(),
+  ]);
+  expect(labelBox).not.toBeNull();
+  expect(ingressBox).not.toBeNull();
+  expect(fieldBox).not.toBeNull();
+  expect(ingressBox?.width).toBeLessThanOrEqual(24);
+  expect(ingressBox?.height).toBeLessThanOrEqual(24);
+  expect(ingressBox?.x ?? 0).toBeGreaterThan(
+    (labelBox?.x ?? 0) + (labelBox?.width ?? 0),
+  );
+  expect(
+    Math.abs(
+      (ingressBox?.y ?? 0) +
+        (ingressBox?.height ?? 0) / 2 -
+        ((labelBox?.y ?? 0) + (labelBox?.height ?? 0) / 2),
+    ),
+  ).toBeLessThanOrEqual(2);
+  expect(
+    Math.abs(
+      (ingressBox?.x ?? 0) +
+        (ingressBox?.width ?? 0) -
+        ((fieldBox?.x ?? 0) + (fieldBox?.width ?? 0)),
+    ),
+  ).toBeLessThanOrEqual(1);
+
+  await expect(
+    dialog.getByRole("button", {
+      name: "Design engineering",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", {
+      name: "Engineering discipline",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+
+  await pickerIngress.click();
+  const skillMenu = page.getByRole("menu");
+  const designOption = page.getByRole("menuitemcheckbox", {
+    name: /Design engineering/,
+  });
+  const createNewButton = skillMenu.getByRole("menuitem", {
+    name: "Create new",
+  });
+  await expect(skillMenu).toBeVisible();
+  await waitForAnimations(page);
+  const [openIngressBox, skillMenuBox] = await Promise.all([
+    pickerIngress.boundingBox(),
+    skillMenu.boundingBox(),
+  ]);
+  expect(openIngressBox).not.toBeNull();
+  expect(skillMenuBox).not.toBeNull();
+  expect(
+    (skillMenuBox?.x ?? 0) + (skillMenuBox?.width ?? 0),
+  ).toBeLessThanOrEqual(openIngressBox?.x ?? 0);
+  expect(
+    Math.abs((skillMenuBox?.y ?? 0) - (openIngressBox?.y ?? 0)),
+  ).toBeLessThanOrEqual(1);
+  await expect(designOption).toContainText(
+    "Use when making decisions around interfaces and design.",
+  );
+  const menuTitle = designOption.getByTestId("relay-skill-menu-title");
+  const menuSummary = designOption.getByTestId("relay-skill-menu-summary");
+  const typography = await Promise.all(
+    [menuTitle, menuSummary].map((locator) =>
+      locator.evaluate((element) => ({
+        fontSize: Number.parseFloat(getComputedStyle(element).fontSize),
+        fontWeight: Number.parseInt(getComputedStyle(element).fontWeight, 10),
+      })),
+    ),
+  );
+  expect(typography[0].fontSize).toBeGreaterThan(typography[1].fontSize);
+  expect(typography[1].fontWeight).toBeLessThan(typography[0].fontWeight);
+  expect((await createNewButton.boundingBox())?.height).toBeLessThanOrEqual(24);
+  expect(
+    await menuTitle.evaluate(
+      (element) => getComputedStyle(element).webkitLineClamp,
+    ),
+  ).toBe("1");
+  expect(
+    await menuSummary.evaluate((element) => ({
+      overflow: getComputedStyle(element).overflow,
+      textOverflow: getComputedStyle(element).textOverflow,
+      whiteSpace: getComputedStyle(element).whiteSpace,
+    })),
+  ).toEqual({
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  });
+  await designOption.hover();
+  const hoverCard = page.getByRole("region", {
+    name: "Design engineering shared instruction preview",
+  });
+  await expect(hoverCard).toBeVisible();
+  await expect(hoverCard).toContainText("Instruction line 80");
+  const hoverCardContent = page.getByTestId("relay-skill-hover-card-content");
+  await expect(
+    hoverCardContent.getByText("Design engineering", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    hoverCardContent.getByText(
+      "Use when making decisions around interfaces and design.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  const scrollMetrics = await hoverCardContent.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    overflowY: getComputedStyle(element).overflowY,
+    scrollHeight: element.scrollHeight,
+    scrollTop: element.scrollTop,
+  }));
+  expect(scrollMetrics.overflowY).toBe("auto");
+  expect(scrollMetrics.scrollHeight).toBeGreaterThan(
+    scrollMetrics.clientHeight,
+  );
+  await hoverCardContent.hover();
+  await page.mouse.wheel(0, 400);
+  await expect
+    .poll(() => hoverCardContent.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(scrollMetrics.scrollTop);
+  const [designOptionBox, menuHoverCardBox] = await Promise.all([
+    designOption.boundingBox(),
+    hoverCard.boundingBox(),
+  ]);
+  expect(designOptionBox).not.toBeNull();
+  expect(menuHoverCardBox).not.toBeNull();
+  expect(
+    (menuHoverCardBox?.x ?? 0) + (menuHoverCardBox?.width ?? 0),
+  ).toBeLessThanOrEqual(designOptionBox?.x ?? 0);
+  expect(
+    Math.abs(
+      (menuHoverCardBox?.y ?? 0) +
+        (menuHoverCardBox?.height ?? 0) / 2 -
+        ((designOptionBox?.y ?? 0) + (designOptionBox?.height ?? 0) / 2),
+    ),
+  ).toBeLessThanOrEqual(1);
+  await hoverCard.hover();
+  await page.waitForTimeout(400);
+  await expect(hoverCard).toBeVisible();
+  await designOption.focus();
+  await expect(hoverCard).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(hoverCard).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(designOption).toBeFocused();
+  const engineeringOption = page.getByRole("menuitemcheckbox", {
+    name: /Engineering discipline/,
+  });
+  const engineeringHoverCard = page.getByRole("region", {
+    name: "Engineering discipline shared instruction preview",
+  });
+  await page.keyboard.press("ArrowDown");
+  await expect(engineeringOption).toBeFocused();
+  await expect(engineeringHoverCard).toBeVisible();
+  await expect(hoverCard).toBeHidden();
+  await page.keyboard.press("ArrowUp");
+  await expect(designOption).toBeFocused();
+  await expect(hoverCard).toBeVisible();
+  await expect(engineeringHoverCard).toBeHidden();
+  await designOption.click();
+
+  const selectedSkill = dialog.getByRole("button", {
+    name: "Design engineering",
+    exact: true,
+  });
+  await expect(selectedSkill).toBeVisible();
+  await page.keyboard.press("Escape");
+  await selectedSkill.click();
+  await expect(
+    page.getByRole("dialog", { name: "Shared instructions" }),
+  ).toHaveCount(0);
+  expect(
+    await selectedSkill.evaluate(
+      (element) => element.parentElement?.getBoundingClientRect().height ?? 0,
+    ),
+  ).toBeLessThanOrEqual(28);
+  const selectedOverlay = dialog.getByTestId("relay-skill-picker-selected");
+  await expect(selectedOverlay).toBeVisible();
+  expect(
+    await selectedOverlay.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    ),
+  ).toBeLessThanOrEqual(52);
+  expect(
+    await selectedOverlay.evaluate(
+      (element) => getComputedStyle(element).backgroundImage,
+    ),
+  ).not.toBe("none");
+  expect(
+    await selectedOverlay.evaluate((overlay) => {
+      const field = overlay.closest('[data-testid="relay-skill-picker-field"]');
+      if (!(field instanceof HTMLElement)) return 0;
+      const fieldRight = field.getBoundingClientRect().right;
+      const overlayRight = overlay.getBoundingClientRect().right;
+      return fieldRight - overlayRight;
+    }),
+  ).toBeGreaterThanOrEqual(24);
+  await expect
+    .poll(() => skillField.evaluate((element) => element.clientHeight))
+    .toBe(emptyFieldHeight);
+  await expect
+    .poll(() => instructions.evaluate((element) => element.clientHeight))
+    .toBe(emptyFieldHeight);
+  await expect
+    .poll(() =>
+      instructions.evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).paddingBottom),
+      ),
+    )
+    .toBeGreaterThan(emptyBottomPadding);
+  await pickerIngress.click();
+  await expect(
+    page.getByRole("menuitemcheckbox", { name: /Engineering discipline/ }),
+  ).toBeVisible();
+});
+
+test("shared instruction editing is author-only and does not leak into creation", async ({
+  page,
+}) => {
+  const owner = TEST_IDENTITIES.tyler.pubkey;
+  const otherAuthor = TEST_IDENTITIES.alice.pubkey;
+  const ownedCoordinate = `30023:${owner}:design-engineering`;
+  const foreignCoordinate = `30023:${otherAuthor}:product-writing`;
+  await installMockBridge(page, {
+    relaySkills: [
+      {
+        coordinate: ownedCoordinate,
+        publisher: owner,
+        slug: "design-engineering",
+        title: "Design engineering",
+        summary: "Use when making interface decisions.",
+        eventId: "a1".repeat(32),
+        updatedAt: 1_700_000_000,
+        compatible: true,
+        incompatibilities: [],
+      },
+      {
+        coordinate: foreignCoordinate,
+        publisher: otherAuthor,
+        slug: "product-writing",
+        title: "Product writing",
+        summary: "Use when refining product copy.",
+        eventId: "b2".repeat(32),
+        updatedAt: 1_700_000_001,
+        compatible: true,
+        incompatibilities: [],
+      },
+    ],
+    relaySkillDetails: [
+      {
+        coordinate: ownedCoordinate,
+        publisher: owner,
+        slug: "design-engineering",
+        title: "Design engineering",
+        summary: "Use when making interface decisions.",
+        content: "Review interface decisions against the product intent.",
+        eventId: "a1".repeat(32),
+        updatedAt: 1_700_000_000,
+        editable: true,
+      },
+      {
+        coordinate: foreignCoordinate,
+        publisher: otherAuthor,
+        slug: "product-writing",
+        title: "Product writing",
+        summary: "Use when refining product copy.",
+        content: "Make every sentence useful and direct.",
+        eventId: "b2".repeat(32),
+        updatedAt: 1_700_000_001,
+        editable: false,
+      },
+    ],
+  });
+  await gotoApp(page);
+  await page.getByTestId("open-agents-view").click();
+  await page.getByTestId("new-agent-card").click();
+
+  const personaDialog = page.getByTestId("persona-dialog");
+  await personaDialog
+    .getByRole("button", { name: "Add shared instructions" })
+    .click();
+  await page
+    .getByRole("menuitemcheckbox", { name: /Design engineering/ })
+    .hover();
+  const ownedPreview = page.getByRole("region", {
+    name: "Design engineering shared instruction preview",
+  });
+  const editButton = ownedPreview.getByRole("button", { name: "Edit" });
+  await expect(editButton).toBeVisible();
+  await editButton.click();
+
+  const editDialog = page.getByRole("dialog", {
+    name: "Edit shared instruction",
+  });
+  await expect(editDialog.locator("#relay-skill-title")).toHaveValue(
+    "Design engineering",
+  );
+  await expect(editDialog.locator("#relay-skill-summary")).toHaveValue(
+    "Use when making interface decisions.",
+  );
+  await expect(editDialog.locator("#relay-skill-instructions")).toHaveValue(
+    "Review interface decisions against the product intent.",
+  );
+
+  await editDialog.getByRole("button", { name: "Cancel" }).click();
+  await personaDialog
+    .getByRole("button", { name: "Add shared instructions" })
+    .click();
+  await page.getByRole("menuitem", { name: "Create new" }).click();
+  const createDialog = page.getByRole("dialog", {
+    name: "Create shared instruction",
+  });
+  await expect(createDialog.locator("#relay-skill-title")).toHaveValue("");
+  await expect(createDialog.locator("#relay-skill-summary")).toHaveValue("");
+  await expect(createDialog.locator("#relay-skill-instructions")).toHaveValue(
+    "",
+  );
+  await createDialog.getByRole("button", { name: "Cancel" }).click();
+
+  await personaDialog
+    .getByRole("button", { name: "Add shared instructions" })
+    .click();
+  await page
+    .getByRole("menuitemcheckbox", { name: /Design engineering/ })
+    .hover();
+  await page
+    .getByRole("region", {
+      name: "Design engineering shared instruction preview",
+    })
+    .getByRole("button", { name: "Edit" })
+    .click();
+  await editDialog.locator("#relay-skill-title").fill("Design review");
+  await editDialog
+    .locator("#relay-skill-summary")
+    .fill("Use when reviewing interface decisions.");
+  await editDialog
+    .locator("#relay-skill-instructions")
+    .fill("Review interface decisions against product intent and evidence.");
+  await editDialog.getByRole("button", { name: "Save changes" }).click();
+  await expect(editDialog).toBeHidden();
+
+  const updateInput = await page.evaluate(() => {
+    const call = [...(window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [])]
+      .reverse()
+      .find((candidate) => candidate.command === "update_relay_skill");
+    return (
+      call?.payload as
+        | {
+            input?: {
+              coordinate?: string;
+              expectedEventId?: string;
+              title?: string;
+              summary?: string;
+              instructions?: string;
+            };
+          }
+        | undefined
+    )?.input;
+  });
+  expect(updateInput).toEqual({
+    coordinate: ownedCoordinate,
+    expectedEventId: "a1".repeat(32),
+    title: "Design review",
+    summary: "Use when reviewing interface decisions.",
+    instructions:
+      "Review interface decisions against product intent and evidence.",
+  });
+
+  await personaDialog
+    .getByRole("button", { name: "Add shared instructions" })
+    .click();
+  await page.getByRole("menuitemcheckbox", { name: /Product writing/ }).hover();
+  const foreignPreview = page.getByRole("region", {
+    name: "Product writing shared instruction preview",
+  });
+  await expect(foreignPreview).toBeVisible();
+  await expect(
+    foreignPreview.getByRole("button", { name: "Edit" }),
+  ).toHaveCount(0);
 });
 
 test("the new team card offers create and import", async ({ page }) => {

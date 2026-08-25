@@ -1447,6 +1447,8 @@ pub struct FormatPromptArgs<'a> {
     pub base_prompt: Option<&'a str>,
     /// System prompt content for legacy agents (protocol_version < 2).
     pub system_prompt: Option<&'a str>,
+    /// Compact assigned-skill covers for legacy agents.
+    pub assigned_relay_skills: Option<&'a str>,
     /// Team instructions for legacy agents, rendered after `[Agent Instructions]`.
     pub team_instructions: Option<&'a str>,
     /// Rendered `[Channel Canvas]` metadata section for legacy agents.
@@ -1479,6 +1481,7 @@ pub struct FormatPromptArgs<'a> {
 pub(crate) struct StandingContext<'a> {
     pub base_prompt: Option<&'a str>,
     pub system_prompt: Option<&'a str>,
+    pub assigned_relay_skills: Option<&'a str>,
     pub team_instructions: Option<&'a str>,
     pub agent_core: Option<&'a str>,
     pub huddle_instructions: Option<&'a str>,
@@ -1494,6 +1497,13 @@ impl StandingContext<'_> {
         }
         if let Some(sp) = self.system_prompt {
             sections.push(format!("[Agent Instructions]\n{sp}"));
+        }
+        if let Some(skills) = self
+            .assigned_relay_skills
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            sections.push(skills.to_string());
         }
         if let Some(team) = self
             .team_instructions
@@ -1531,9 +1541,10 @@ pub(crate) fn base_section(base_prompt: &str) -> String {
 /// Format a [`FlushBatch`] into the per-section prompt blocks for the agent.
 ///
 /// Produces a stable prompt with these sections (in order):
-/// 0. [`StandingContext`] — `[Base]`, `[Agent Instructions]`, `[Team Instructions]`,
-///    `[Agent Memory — core]`, `[Channel Canvas]`. Legacy agents only, and only
-///    on the session's first message (see `standing_context_sent`)
+/// 0. [`StandingContext`] — `[Base]`, `[Agent Instructions]`,
+///    `[Assigned Relay Skills]`, `[Team Instructions]`, `[Agent Memory — core]`,
+///    `[Channel Canvas]`. Legacy agents only, and only on the session's first
+///    message (see `standing_context_sent`)
 /// 1. `[Context]` — scope, channel name, and contextual hints for the agent
 /// 2. `[Thread Context]` or `[Conversation Context]` — if fetched
 /// 3. `[Event]` / `[Buzz events]` — the triggering event(s)
@@ -1578,6 +1589,7 @@ pub fn format_prompt(batch: &FlushBatch, args: &FormatPromptArgs<'_>) -> Vec<Str
             StandingContext {
                 base_prompt: args.base_prompt,
                 system_prompt: args.system_prompt,
+                assigned_relay_skills: args.assigned_relay_skills,
                 team_instructions: args.team_instructions,
                 agent_core: args.agent_core,
                 huddle_instructions: args.huddle_instructions,
@@ -2580,6 +2592,7 @@ mod tests {
                 has_system_prompt_support: false,
                 base_prompt: Some("test base prompt"),
                 system_prompt: Some("test system prompt"),
+                assigned_relay_skills: None,
                 agent_core: Some(core),
                 ..Default::default()
             },
@@ -2635,10 +2648,13 @@ mod tests {
         };
         let canvas = "[Channel Canvas]\ncanvas content";
         let core = "[Agent Memory — core]\nremember this";
+        let assigned_skills =
+            "[Assigned Relay Skills]\n- **Design** (`design`)\n  Review interfaces.";
         let args = |sent| FormatPromptArgs {
             has_system_prompt_support: false,
             base_prompt: Some("test base prompt"),
             system_prompt: Some("test system prompt"),
+            assigned_relay_skills: Some(assigned_skills),
             team_instructions: Some("ship small"),
             agent_core: Some(core),
             huddle_instructions: None,
@@ -2653,6 +2669,7 @@ mod tests {
         for section in [
             "[Base]",
             "[Agent Instructions]",
+            "[Assigned Relay Skills]",
             "[Team Instructions]",
             "[Agent Memory — core]",
             "[Channel Canvas]",
@@ -2660,6 +2677,15 @@ mod tests {
             assert!(first.contains(section), "first message missing {section}");
             assert!(!later.contains(section), "turn 2 repeated {section}");
         }
+        // Verify owner-authored standing context ordering on the first legacy turn.
+        let instructions_pos = first.find("[Agent Instructions]").unwrap();
+        let skills_pos = first.find("[Assigned Relay Skills]").unwrap();
+        let team_pos = first.find("[Team Instructions]").unwrap();
+        let core_pos = first.find("[Agent Memory — core]").unwrap();
+        assert!(instructions_pos < skills_pos);
+        assert!(skills_pos < team_pos);
+        assert!(team_pos < core_pos);
+
         // What the turn is actually about survives, and now leads.
         assert!(later.starts_with("[Context]"), "got: {later}");
         assert!(later.contains("hello"));
@@ -2693,6 +2719,7 @@ mod tests {
                 has_system_prompt_support: true,
                 base_prompt: Some("test base prompt"),
                 system_prompt: Some("test system prompt"),
+                assigned_relay_skills: None,
                 ..Default::default()
             },
         )

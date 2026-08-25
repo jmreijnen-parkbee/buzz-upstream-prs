@@ -694,6 +694,14 @@ pub fn spawn_agent_child(
     } else {
         command.env_remove("BUZZ_ACP_TEAM_INSTRUCTIONS");
     }
+    if record.assigned_relay_skills.is_empty() {
+        command.env_remove("BUZZ_ACP_ASSIGNED_RELAY_SKILLS");
+    } else {
+        command.env(
+            "BUZZ_ACP_ASSIGNED_RELAY_SKILLS",
+            record.assigned_relay_skills.join(","),
+        );
+    }
 
     // Prompt, model, and provider all come from the single `effective_cfg`
     // resolved at the top of this function — the SAME resolve the spawn-config
