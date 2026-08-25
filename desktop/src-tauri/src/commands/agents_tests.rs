@@ -513,10 +513,12 @@ fn deploy_payload_matches_the_shared_full_launch_fixture() {
         &record,
         &descriptor,
         &[],
+        &[],
         None,
         Some("gpt-5"),
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    );
+    )
+    .unwrap();
     let agent = deploy_payload_json(
         &record,
         "wss://relay.example".into(),

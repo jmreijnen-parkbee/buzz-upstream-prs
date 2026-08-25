@@ -40,32 +40,29 @@ pub(crate) fn resolve_deploy_model_provider(
     .unwrap_or((None, None))
 }
 
-/// Serialize the portable launch contract shared with provider-backed agents.
-///
-/// `descriptor.env` is the authoritative six-layer environment. Policy values
-/// are deliberately separate because providers apply them below that layered
-/// environment, preserving the local spawn's power-user override semantics.
-#[cfg(test)]
+/// Resolve assignments and serialize the portable launch contract used by production deploys.
 pub(super) fn build_launch_block(
     record: &ManagedAgentRecord,
     descriptor: &crate::managed_agents::readiness::EffectiveHarnessDescriptor,
     teams: &[crate::managed_agents::TeamRecord],
+    personas: &[AgentDefinition],
     effective_prompt: Option<&str>,
     effective_model: Option<&str>,
     owner_pubkey: &str,
-) -> serde_json::Value {
-    build_launch_block_with_assignments(
+) -> Result<serde_json::Value, String> {
+    let assigned_relay_skills = live_assigned_relay_skills(record, personas)?;
+    Ok(serialize_launch_block(
         record,
         descriptor,
         teams,
         effective_prompt,
         effective_model,
-        &record.assigned_relay_skills,
+        assigned_relay_skills,
         owner_pubkey,
-    )
+    ))
 }
 
-fn build_launch_block_with_assignments(
+fn serialize_launch_block(
     record: &ManagedAgentRecord,
     descriptor: &crate::managed_agents::readiness::EffectiveHarnessDescriptor,
     teams: &[crate::managed_agents::TeamRecord],
@@ -239,16 +236,15 @@ pub(crate) fn build_deploy_payload(
         crate::managed_agents::resolve_effective_harness_descriptor(record, &personas, &global)
             .map_err(|error| crate::managed_agents::user_facing_harness_error(&error))?;
     let owner_pubkey = super::workspace_owner_hex(state)?;
-    let assigned_relay_skills = live_assigned_relay_skills(record, &personas)?;
-    let launch = build_launch_block_with_assignments(
+    let launch = build_launch_block(
         record,
         &descriptor,
         &teams,
+        &personas,
         effective.system_prompt.value.as_deref(),
         effective.model.value.as_deref(),
-        assigned_relay_skills,
         &owner_pubkey,
-    );
+    )?;
 
     let effective_parallelism =
         crate::managed_agents::effective_parallelism(&descriptor.command, record.parallelism);
@@ -355,21 +351,21 @@ mod tests {
         .unwrap();
         persona.assigned_relay_skills = vec!["current-a".into()];
         let personas = [persona];
-        let current = live_assigned_relay_skills(&record, &personas).unwrap();
         let descriptor = EffectiveHarnessDescriptor {
             command: "goose".into(),
             args: vec![],
             env: BTreeMap::new(),
         };
-        let launch = build_launch_block_with_assignments(
+        let launch = build_launch_block(
             &record,
             &descriptor,
             &[],
+            &personas,
             None,
             None,
-            current,
             "owner-hex",
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             launch["policy_env"]["BUZZ_ACP_ASSIGNED_RELAY_SKILLS"],
@@ -406,10 +402,12 @@ mod tests {
             &record,
             &descriptor,
             &teams,
+            &[],
             Some("prompt"),
             Some("model"),
             "owner-hex",
-        );
+        )
+        .unwrap();
 
         assert_eq!(launch["command"], "goose");
         assert_eq!(launch["args"], serde_json::json!(["acp"]));
@@ -458,10 +456,12 @@ mod tests {
             &record,
             &descriptor,
             &teams,
+            &[],
             None,
             Some("claude-opus-4"),
             "owner-hex",
-        );
+        )
+        .unwrap();
         assert_eq!(
             launch["policy_env"]["ANTHROPIC_MODEL"], "claude-opus-4",
             "claude remote must receive ANTHROPIC_MODEL"
@@ -494,10 +494,12 @@ mod tests {
             &record,
             &descriptor,
             &[],
+            &[],
             None,
             Some("claude-opus-4"),
             "owner-hex",
-        );
+        )
+        .unwrap();
 
         // Canonical model rides policy_env alone.
         assert_eq!(launch["policy_env"]["ANTHROPIC_MODEL"], "claude-opus-4");
@@ -530,7 +532,8 @@ mod tests {
                 ("ANTHROPIC_MODEL".to_string(), "user-opus".to_string()),
             ]),
         };
-        let launch = build_launch_block(&record, &descriptor, &[], None, None, "owner-hex");
+        let launch =
+            build_launch_block(&record, &descriptor, &[], &[], None, None, "owner-hex").unwrap();
 
         assert!(launch["policy_env"]["ANTHROPIC_MODEL"].is_null());
         assert!(launch["policy_env"]["BUZZ_ACP_MODEL"].is_null());
@@ -555,8 +558,16 @@ mod tests {
             args: vec![],
             env: BTreeMap::from([("BUZZ_ACP_MODEL".to_string(), "user-model".to_string())]),
         };
-        let launch =
-            build_launch_block(&record, &descriptor, &[], None, Some("model"), "owner-hex");
+        let launch = build_launch_block(
+            &record,
+            &descriptor,
+            &[],
+            &[],
+            None,
+            Some("model"),
+            "owner-hex",
+        )
+        .unwrap();
 
         // goose puts canonical in policy_env, and the user launch.env value is
         // preserved (later-wins is the intended goose behavior).
@@ -574,7 +585,8 @@ mod tests {
             args: vec![],
             env: BTreeMap::new(),
         };
-        let launch = build_launch_block(&record, &descriptor, &[], None, None, "owner-hex");
+        let launch =
+            build_launch_block(&record, &descriptor, &[], &[], None, None, "owner-hex").unwrap();
         assert_eq!(
             launch["policy_env"]["BUZZ_ACP_EFFORT_LEVEL"], "high",
             "claude remote must receive BUZZ_ACP_EFFORT_LEVEL when effort_level is set"
@@ -590,7 +602,8 @@ mod tests {
             args: vec![],
             env: BTreeMap::new(),
         };
-        let launch = build_launch_block(&record, &descriptor, &[], None, None, "owner-hex");
+        let launch =
+            build_launch_block(&record, &descriptor, &[], &[], None, None, "owner-hex").unwrap();
         assert!(
             launch["policy_env"]["BUZZ_ACP_EFFORT_LEVEL"].is_null(),
             "policy_env must NOT contain BUZZ_ACP_EFFORT_LEVEL when effort_level is None"
@@ -612,7 +625,8 @@ mod tests {
             // User-supplied conflicting value in descriptor.env.
             env: BTreeMap::from([("BUZZ_ACP_EFFORT_LEVEL".to_string(), "low".to_string())]),
         };
-        let launch = build_launch_block(&record, &descriptor, &[], None, None, "owner-hex");
+        let launch =
+            build_launch_block(&record, &descriptor, &[], &[], None, None, "owner-hex").unwrap();
 
         // Canonical must be in policy_env (tier 1).
         assert_eq!(
@@ -638,7 +652,8 @@ mod tests {
             args: vec![],
             env: BTreeMap::from([("BUZZ_ACP_EFFORT_LEVEL".to_string(), "low".to_string())]),
         };
-        let launch = build_launch_block(&record, &descriptor, &[], None, None, "owner-hex");
+        let launch =
+            build_launch_block(&record, &descriptor, &[], &[], None, None, "owner-hex").unwrap();
 
         // No canonical — key must NOT appear in policy_env.
         assert!(
@@ -666,7 +681,8 @@ mod tests {
             env: BTreeMap::new(),
         };
 
-        let launch = build_launch_block(&record, &descriptor, &[], None, None, "owner-hex");
+        let launch =
+            build_launch_block(&record, &descriptor, &[], &[], None, None, "owner-hex").unwrap();
 
         assert_eq!(
             launch["policy_env"]["BUZZ_ACP_AGENTS"],
@@ -688,7 +704,8 @@ mod tests {
             env: BTreeMap::new(),
         };
 
-        let launch = build_launch_block(&record, &descriptor, &[], None, None, "owner-hex");
+        let launch =
+            build_launch_block(&record, &descriptor, &[], &[], None, None, "owner-hex").unwrap();
 
         assert_eq!(
             launch["policy_env"]["BUZZ_ACP_AGENTS"], "8",
@@ -718,7 +735,8 @@ mod tests {
         };
         let cap = crate::managed_agents::parallelism::OPENCLAW_MAX_PARALLELISM;
 
-        let launch = build_launch_block(&record, &descriptor, &[], None, None, "owner-hex");
+        let launch =
+            build_launch_block(&record, &descriptor, &[], &[], None, None, "owner-hex").unwrap();
         let effective_parallelism =
             crate::managed_agents::effective_parallelism(&descriptor.command, record.parallelism);
         let payload = deploy_payload_json(
@@ -763,7 +781,8 @@ mod tests {
             env: BTreeMap::new(),
         };
 
-        let launch = build_launch_block(&record, &descriptor, &[], None, None, "owner-hex");
+        let launch =
+            build_launch_block(&record, &descriptor, &[], &[], None, None, "owner-hex").unwrap();
         let effective_parallelism =
             crate::managed_agents::effective_parallelism(&descriptor.command, record.parallelism);
         let payload = deploy_payload_json(
@@ -809,7 +828,8 @@ mod tests {
         };
         let cap = crate::managed_agents::parallelism::OPENCLAW_MAX_PARALLELISM;
 
-        let launch = build_launch_block(&record, &descriptor, &[], None, None, "owner-hex");
+        let launch =
+            build_launch_block(&record, &descriptor, &[], &[], None, None, "owner-hex").unwrap();
         let effective_parallelism =
             crate::managed_agents::effective_parallelism(&descriptor.command, record.parallelism);
         let payload = deploy_payload_json(
