@@ -50,7 +50,10 @@ pub(super) fn build_launch_block(
     effective_model: Option<&str>,
     owner_pubkey: &str,
 ) -> Result<serde_json::Value, String> {
-    let assigned_relay_skills = live_assigned_relay_skills(record, personas)?;
+    let assigned_relay_skills =
+        crate::managed_agents::effective_config::resolve_effective_assigned_relay_skills(
+            record, personas,
+        )?;
     Ok(serialize_launch_block(
         record,
         descriptor,
@@ -191,20 +194,6 @@ pub(super) fn ensure_remote_provider_supported(provider: Option<&str>) -> Result
         );
     }
     Ok(())
-}
-
-fn live_assigned_relay_skills<'a>(
-    record: &'a ManagedAgentRecord,
-    personas: &'a [AgentDefinition],
-) -> Result<&'a [String], String> {
-    match record.persona_id.as_deref() {
-        Some(persona_id) => personas
-            .iter()
-            .find(|persona| persona.id == persona_id)
-            .map(|persona| persona.assigned_relay_skills.as_slice())
-            .ok_or_else(|| format!("linked agent definition {persona_id:?} is missing")),
-        None => Ok(record.assigned_relay_skills.as_slice()),
-    }
 }
 
 /// Build the standard agent JSON payload for provider deploy calls.

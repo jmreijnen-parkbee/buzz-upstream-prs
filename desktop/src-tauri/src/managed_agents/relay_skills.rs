@@ -700,6 +700,58 @@ mod tests {
     }
 
     #[test]
+    fn effective_assigned_relay_skill_env_uses_live_definition() {
+        let stale = format!("30023:{}:revoked", "a".repeat(64));
+        let current = format!("30023:{}:kept", "b".repeat(64));
+        let record: super::super::ManagedAgentRecord = serde_json::from_value(serde_json::json!({
+            "pubkey": "agent",
+            "name": "agent",
+            "persona_id": "persona",
+            "private_key_nsec": "nsec1fake",
+            "relay_url": "wss://relay.example",
+            "acp_command": "buzz-acp",
+            "agent_command": "goose",
+            "agent_args": [],
+            "mcp_command": "",
+            "turn_timeout_seconds": 300,
+            "parallelism": 1,
+            "assigned_relay_skills": [stale.clone()],
+            "created_at": "now",
+            "updated_at": "now"
+        }))
+        .unwrap();
+        let definition: super::super::AgentDefinition = serde_json::from_value(serde_json::json!({
+            "id": "persona",
+            "display_name": "Persona",
+            "system_prompt": "prompt",
+            "name_pool": [],
+            "is_builtin": false,
+            "is_active": true,
+            "assigned_relay_skills": [current.clone()],
+            "created_at": "now",
+            "updated_at": "now"
+        }))
+        .unwrap();
+        let mut command = std::process::Command::new("buzz-acp");
+
+        let definitions = [definition];
+        let assigned =
+            crate::managed_agents::effective_config::resolve_effective_assigned_relay_skills(
+                &record,
+                &definitions,
+            )
+            .unwrap();
+        apply_assigned_relay_skills_env(&mut command, assigned);
+
+        let env = command
+            .get_envs()
+            .find(|(key, _)| *key == ASSIGNED_RELAY_SKILLS_ENV)
+            .and_then(|(_, value)| value)
+            .and_then(|value| value.to_str());
+        assert_eq!(env, Some(current.as_str()));
+    }
+
+    #[test]
     fn accepts_exact_coordinate_and_deduplicates() {
         let key = "a".repeat(64);
         let coordinate = format!("30023:{key}:design-engineering");

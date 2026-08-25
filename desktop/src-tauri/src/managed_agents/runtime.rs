@@ -694,10 +694,9 @@ pub fn spawn_agent_child(
     } else {
         command.env_remove("BUZZ_ACP_TEAM_INSTRUCTIONS");
     }
-    super::relay_skills::apply_assigned_relay_skills_env(
-        &mut command,
-        &record.assigned_relay_skills,
-    );
+    let assigned_relay_skills =
+        super::effective_config::resolve_effective_assigned_relay_skills(record, &personas)?;
+    super::relay_skills::apply_assigned_relay_skills_env(&mut command, assigned_relay_skills);
 
     // Prompt, model, and provider all come from the single `effective_cfg`
     // resolved at the top of this function — the SAME resolve the spawn-config
@@ -864,6 +863,7 @@ pub fn spawn_agent_child(
             system_prompt: effective_prompt.as_deref(),
             model: effective_model.as_deref(),
             provider: effective_provider.as_deref(),
+            assigned_relay_skills,
             enforced_owner_only: super::owner_only_access_build(),
         },
     );

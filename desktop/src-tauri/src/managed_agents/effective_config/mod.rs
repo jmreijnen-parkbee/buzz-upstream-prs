@@ -261,6 +261,22 @@ pub fn resolve_effective_config(
     }
 }
 
+/// Resolve shared-instruction authorization from the live linked definition.
+/// Definition-less records retain their own assignments; orphaned links are refused.
+pub fn resolve_effective_assigned_relay_skills<'a>(
+    record: &'a ManagedAgentRecord,
+    definitions: &'a [AgentDefinition],
+) -> Result<&'a [String], String> {
+    match record.persona_id.as_deref() {
+        Some(persona_id) => definitions
+            .iter()
+            .find(|definition| definition.id == persona_id)
+            .map(|definition| definition.assigned_relay_skills.as_slice())
+            .ok_or_else(|| ORPHANED_INSTANCE_ERROR.to_string()),
+        None => Ok(record.assigned_relay_skills.as_slice()),
+    }
+}
+
 pub fn resolve_effective_model_provider_pair(
     record: &ManagedAgentRecord,
     definitions: &[AgentDefinition],
