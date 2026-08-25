@@ -777,12 +777,7 @@ mod tests {
                 .iter()
                 .any(|reason| reason.code == RelaySkillIncompatibilityCode::InvalidName));
         }
-        let reasons = agent_skill_incompatibilities(
-            "valid-name",
-            Some("summary"),
-            "  
-",
-        );
+        let reasons = agent_skill_incompatibilities("valid-name", Some("summary"), "\n");
         assert_eq!(reasons[0].code, RelaySkillIncompatibilityCode::EmptyBody);
     }
 
