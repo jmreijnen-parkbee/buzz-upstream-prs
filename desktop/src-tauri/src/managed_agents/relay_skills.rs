@@ -40,10 +40,7 @@ pub(crate) fn resolve_and_apply_assigned_relay_skills_env<'a>(
     Ok(assigned)
 }
 
-pub(crate) fn apply_assigned_relay_skills_env(
-    command: &mut std::process::Command,
-    coordinates: &[String],
-) {
+fn apply_assigned_relay_skills_env(command: &mut std::process::Command, coordinates: &[String]) {
     if coordinates.is_empty() {
         command.env_remove(ASSIGNED_RELAY_SKILLS_ENV);
     } else {
