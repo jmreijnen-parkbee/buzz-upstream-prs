@@ -117,7 +117,7 @@ fn render_assigned_skill_covers(coordinates: &[Coordinate], events: Vec<Event>) 
         };
         let title = exact_tag(&event, "title")
             .map(clean_single_line)
-            .filter(|value| !value.is_empty())
+            .filter(|value| !value.is_empty() && value.len() <= MAX_DESCRIPTION_BYTES)
             .unwrap_or_else(|| coordinate.slug.clone());
         rows.push(format!(
             "- **{title}** (`{}`)\n  {summary}\n  When relevant, fetch the full signed instructions with `buzz notes get --name {} --author {} --content-only`.",
@@ -222,5 +222,25 @@ mod tests {
         assert!(rendered.contains("buzz notes get --name review --author"));
         assert!(!rendered.contains("full body stays lazy"));
         assert!(!rendered.contains("Nope"));
+    }
+
+    #[test]
+    fn oversized_title_falls_back_to_bounded_slug() {
+        let author = Keys::generate();
+        let coordinate = format!("30023:{}:safe-slug", author.public_key().to_hex());
+        let event = EventBuilder::new(Kind::Custom(SKILL_KIND), "lazy body")
+            .tags([
+                Tag::parse(["d", "safe-slug"]).unwrap(),
+                Tag::parse(["title", &"x".repeat(MAX_DESCRIPTION_BYTES + 1)]).unwrap(),
+                Tag::parse(["summary", "Bounded summary"]).unwrap(),
+            ])
+            .sign_with_keys(&author)
+            .unwrap();
+        let rendered =
+            render_assigned_skill_covers(&[parse_coordinate(&coordinate).unwrap()], vec![event])
+                .unwrap();
+
+        assert!(rendered.contains("**safe-slug**"));
+        assert!(!rendered.contains(&"x".repeat(MAX_DESCRIPTION_BYTES + 1)));
     }
 }
