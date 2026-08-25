@@ -224,6 +224,27 @@ fn persona_prompt_edit_changes_snapshot() {
 }
 
 #[test]
+fn persona_shared_instruction_edit_changes_snapshot() {
+    let mut rec = record();
+    rec.persona_id = Some("pers".into());
+    let mut before = persona("pers", Some("goose"), "prompt");
+    before.assigned_relay_skills = vec![format!("30023:{}:before", "a".repeat(64))];
+    let mut after = before.clone();
+    after.assigned_relay_skills = vec![format!("30023:{}:after", "b".repeat(64))];
+
+    assert_ne!(
+        snapshot(
+            &rec,
+            &[before],
+            &[],
+            "wss://ws.example",
+            &Default::default()
+        ),
+        snapshot(&rec, &[after], &[], "wss://ws.example", &Default::default())
+    );
+}
+
+#[test]
 fn workspace_relay_change_trips_snapshot_even_for_stored_record_relay() {
     // The legacy per-record relay pin is ignored (#2122): every record spawns
     // against the active workspace relay, so a workspace relay change means a

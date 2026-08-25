@@ -169,6 +169,18 @@ pub(super) fn sample_persona() -> AgentDefinition {
 }
 
 #[test]
+fn apply_snapshot_refreshes_shared_instructions_for_existing_instance() {
+    let mut record = sample_record();
+    record.assigned_relay_skills = vec![format!("30023:{}:old", "a".repeat(64))];
+    let mut persona = sample_persona();
+    persona.assigned_relay_skills = vec![format!("30023:{}:new", "b".repeat(64))];
+
+    apply_persona_snapshot(&mut record, &persona);
+
+    assert_eq!(record.assigned_relay_skills, persona.assigned_relay_skills);
+}
+
+#[test]
 fn monotonic_created_at_bumps_past_head() {
     // No head: uses now (floor 0).
     let now = nostr::Timestamp::now().as_secs() as i64;

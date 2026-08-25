@@ -433,6 +433,9 @@ pub struct PersonaSnapshot {
     pub system_prompt: Option<String>,
     pub model: Option<String>,
     pub provider: Option<String>,
+    /// Exact publisher-pinned shared-instruction coordinates, copied verbatim
+    /// from the definition so edits reach an existing instance on restart.
+    pub assigned_relay_skills: Vec<String>,
     /// Preferred ACP runtime ID, copied verbatim from the persona (including
     /// `None`). Unlike `model`/`provider`, there is no record-fallback: the
     /// materialized instance `runtime` must mirror the definition so that
@@ -454,14 +457,15 @@ pub fn persona_snapshot(persona: &AgentDefinition) -> PersonaSnapshot {
         system_prompt: Some(persona.system_prompt.clone()),
         model: persona.model.clone(),
         provider: persona.provider.clone(),
+        assigned_relay_skills: persona.assigned_relay_skills.clone(),
         runtime: persona.runtime.clone(),
         source_version: persona_content_hash(&persona_event_content(persona)),
     }
 }
 
 /// Re-pin `record` to `persona`: build a snapshot via [`persona_snapshot`]
-/// and mirror it onto the record — the definition quad
-/// (`system_prompt`/`model`/`provider`/`runtime`), the env-override
+/// and mirror it onto the record — the definition fields
+/// (`system_prompt`/`model`/`provider`/`runtime`/shared instructions), the env-override
 /// self-heal, and the `persona_source_version` drift basis.
 ///
 /// Definition-authoritative: blank definition model/provider produce `None`
@@ -484,6 +488,7 @@ pub fn apply_persona_snapshot(record: &mut ManagedAgentRecord, persona: &AgentDe
     }
     record.model = snapshot.model;
     record.provider = snapshot.provider;
+    record.assigned_relay_skills = snapshot.assigned_relay_skills;
     record.runtime = snapshot.runtime;
     // Drop a stale create-time harness pin when the definition switches to a
     // different known runtime (builtin, static preset, or loaded custom). A pin

@@ -111,6 +111,8 @@ pub(crate) struct SpawnConfigSnapshot {
     pub system_prompt: Option<String>,
     pub model: Option<String>,
     pub provider: Option<String>,
+    /// Exact publisher-pinned shared-instruction coordinates exported to ACP.
+    pub assigned_relay_skills: Vec<String>,
     /// `None` when a user env override shadows `BUZZ_ACP_SESSION_TITLE`: spawn
     /// writes the title BEFORE the user env layer, so the override is what
     /// actually runs and it already reaches this snapshot through `env`.
@@ -193,6 +195,7 @@ impl SpawnConfigSnapshot {
             system_prompt: system_prompt.map(str::to_string),
             model: model.map(str::to_string),
             provider: provider.map(str::to_string),
+            assigned_relay_skills: record.assigned_relay_skills.clone(),
             session_title: (!descriptor.env.contains_key(SESSION_TITLE_ENV_VAR))
                 .then(|| resolve_session_title(record.display_name.as_deref(), &record.name))
                 .flatten(),
